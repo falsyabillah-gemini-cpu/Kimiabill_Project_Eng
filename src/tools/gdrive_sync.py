@@ -108,11 +108,25 @@ def _normalize_webhook_url(raw: str) -> str:
     return f"https://{url}"
 
 
-def _post_webhook(webhook_url: str, payload: dict[str, Any], timeout: int = 180) -> dict[str, Any]:
+def _resolve_youtube_webhook(default_url: str) -> tuple[str, Optional[str]]:
+    """Return (youtube_webhook_url, token_override), falling back to Drive webhook when unset."""
+    yt_url = os.environ.get("YOUTUBE_WEBHOOK_URL", "").strip()
+    if yt_url:
+        yt_tok = os.environ.get("YOUTUBE_WEBHOOK_TOKEN", "").strip() or None
+        return yt_url, yt_tok
+    return default_url, None
+
+
+def _post_webhook(
+    webhook_url: str,
+    payload: dict[str, Any],
+    timeout: int = 180,
+    token_override: Optional[str] = None,
+) -> dict[str, Any]:
     import time
 
     webhook_url = _normalize_webhook_url(webhook_url)
-    token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
+    token = token_override if token_override is not None else os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
     if token:
         payload = {**payload, "token": token}
     last_exc: Optional[Exception] = None
@@ -373,14 +387,16 @@ def _upload_via_webhook(
         try:
             import time as _time
 
+            yt_webhook_url, yt_token = _resolve_youtube_webhook(webhook_url)
             yt_res: dict[str, Any] = {}
             yt_last_exc: Optional[Exception] = None
             for yt_try in range(1, 3):
                 try:
                     yt_res = _post_webhook(
-                        webhook_url,
+                        yt_webhook_url,
                         yt_payload,
                         timeout=240,
+                        token_override=yt_token,
                     )
                     yt_last_exc = None
                     break
@@ -406,13 +422,14 @@ def _upload_via_webhook(
                     time.sleep(12)
                     try:
                         th_res = _post_webhook(
-                            webhook_url,
+                            yt_webhook_url,
                             {
                                 "action": "set_thumbnail",
                                 "video_id": video_id_yt,
                                 "thumbnail_file_id": thumbnail_file_id,
                             },
                             timeout=60,
+                            token_override=yt_token,
                         )
                         if th_res.get("thumbnail_set"):
                             thumbnail_set = True
@@ -434,13 +451,14 @@ def _upload_via_webhook(
                 time.sleep(10)
                 try:
                     c_res = _post_webhook(
-                        webhook_url,
+                        yt_webhook_url,
                         {
                             "action": "post_comment",
                             "video_id": video_id_yt,
                             "comment_text": yt_payload["first_comment"],
                         },
                         timeout=60,
+                        token_override=yt_token,
                     )
                     if c_res.get("ok"):
                         comment_posted = True

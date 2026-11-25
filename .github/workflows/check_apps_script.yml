@@ -21,6 +21,8 @@ jobs:
         env:
           GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
           GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
+          YOUTUBE_WEBHOOK_URL: ${{ secrets.YOUTUBE_WEBHOOK_URL }}
+          YOUTUBE_WEBHOOK_TOKEN: ${{ secrets.YOUTUBE_WEBHOOK_TOKEN }}
         run: |
           python - <<'PY'
           import json
@@ -29,20 +31,27 @@ jobs:
           import requests
           from src.tools.gdrive_sync import _normalize_webhook_url
 
-          raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
-          if not raw_url:
+          raw_drive_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
+          if not raw_drive_url:
               print("ERROR: GDRIVE_WEBHOOK_URL secret is empty!")
               sys.exit(1)
 
-          url = _normalize_webhook_url(raw_url)
-          token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
+          drive_url = _normalize_webhook_url(raw_drive_url)
+          drive_token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
 
-          g = requests.get(url, timeout=30)
-          print("1. GET status:", g.status_code, "body:", g.text[:300])
+          raw_yt_url = os.environ.get("YOUTUBE_WEBHOOK_URL", "").strip()
+          yt_url = _normalize_webhook_url(raw_yt_url) if raw_yt_url else drive_url
+          yt_token = os.environ.get("YOUTUBE_WEBHOOK_TOKEN", "").strip() if raw_yt_url else drive_token
+
+          g = requests.get(drive_url, timeout=30)
+          print("1. Drive GET status:", g.status_code, "body:", g.text[:300])
+          if raw_yt_url:
+              g_yt = requests.get(yt_url, timeout=30)
+              print("1b. YouTube GET status:", g_yt.status_code, "body:", g_yt.text[:300])
 
           p_yt = requests.post(
-              url,
-              json={"action": "get_youtube_stats", "token": token, "max_results": 2},
+              yt_url,
+              json={"action": "get_youtube_stats", "token": yt_token, "max_results": 2},
               timeout=45,
           ).json()
           ch = p_yt.get("channel", {})
@@ -57,8 +66,8 @@ jobs:
           }
           print("2. get_youtube_stats check:", json.dumps(yt_summary, ensure_ascii=False))
 
-          p_cmt = requests.post(url, json={"action": "post_comment", "token": token}, timeout=30).json()
-          p_th = requests.post(url, json={"action": "set_thumbnail", "token": token}, timeout=30).json()
+          p_cmt = requests.post(yt_url, json={"action": "post_comment", "token": yt_token}, timeout=30).json()
+          p_th = requests.post(yt_url, json={"action": "set_thumbnail", "token": yt_token}, timeout=30).json()
           cmt_deployed = "Unknown action" not in str(p_cmt.get("error", ""))
           th_deployed = "Unknown action" not in str(p_th.get("error", ""))
           print("3. post_comment handler:", cmt_deployed, "4. set_thumbnail handler:", th_deployed)

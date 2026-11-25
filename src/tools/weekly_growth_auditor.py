@@ -232,11 +232,18 @@ def _fetch_public_video_stats(youtube_url: str) -> dict[str, Any]:
 
 def _fetch_webhook_youtube_stats() -> dict[str, Any]:
     """Ask Apps Script webhook for YouTube Data API v3 channel/video stats if supported."""
-    raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
+    raw_url = (
+        os.environ.get("YOUTUBE_WEBHOOK_URL", "").strip()
+        or os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
+    )
     if not raw_url:
         return {}
     webhook_url = _normalize_webhook_url(raw_url)
-    token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
+    token = (
+        os.environ.get("YOUTUBE_WEBHOOK_TOKEN", "").strip()
+        if os.environ.get("YOUTUBE_WEBHOOK_URL", "").strip()
+        else os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
+    )
     try:
         resp = requests.post(
             webhook_url,

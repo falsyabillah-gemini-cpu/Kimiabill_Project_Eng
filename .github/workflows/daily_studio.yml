@@ -116,6 +116,8 @@ jobs:
           PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'public' }}
           GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
           GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
+          YOUTUBE_WEBHOOK_URL: ${{ secrets.YOUTUBE_WEBHOOK_URL }}
+          YOUTUBE_WEBHOOK_TOKEN: ${{ secrets.YOUTUBE_WEBHOOK_TOKEN }}
           NOTIFY_EMAIL_TO: ${{ vars.NOTIFY_EMAIL_TO || 'researchfalsyabillah@gmail.com' }}
           NOTIFY_EMAIL_ALSO: ${{ vars.NOTIFY_EMAIL_ALSO || 'true' }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -195,6 +197,8 @@ jobs:
           SOCIAL_BRIDGE_API_KEY: ${{ secrets.SOCIAL_BRIDGE_API_KEY }}
           GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
           GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
+          YOUTUBE_WEBHOOK_URL: ${{ secrets.YOUTUBE_WEBHOOK_URL }}
+          YOUTUBE_WEBHOOK_TOKEN: ${{ secrets.YOUTUBE_WEBHOOK_TOKEN }}
           STUDIO_SHEET_ID: ${{ secrets.STUDIO_SHEET_ID || vars.STUDIO_SHEET_ID }}
           NOTIFY_EMAIL_TO: ${{ vars.NOTIFY_EMAIL_TO || 'researchfalsyabillah@gmail.com' }}
           NOTIFY_EMAIL_ALSO: ${{ vars.NOTIFY_EMAIL_ALSO || 'true' }}

@@ -277,6 +277,14 @@ function doPost(e) {
       const rootName = payload.root_folder || defaultRoot;
       const episodeName = payload.episode_name || ("ep_" + new Date().getTime());
       const rootFolder = _getOrCreateFolder(rootName, null);
+      const shareViewer = String(props.getProperty("SHARE_VIEWER_EMAIL") || "").trim();
+      if (shareViewer) {
+        try {
+          rootFolder.addViewer(shareViewer);
+        } catch (svErr) {
+          console.log("[init_episode] addViewer skip: " + String(svErr));
+        }
+      }
       const epFolder = _getOrCreateFolder(episodeName, rootFolder);
       return _jsonResponse({
         ok: true,
@@ -458,7 +466,7 @@ function doPost(e) {
         return _jsonResponse({ ok: false, error: "YouTube service not enabled" });
       }
       const vidId = String(payload.video_id || "").trim();
-      const cText = String(payload.text || "").trim();
+      const cText = String(payload.text || payload.comment_text || "").trim();
       if (!vidId || !cText) {
         return _jsonResponse({ ok: false, error: "video_id & text are required" });
       }
