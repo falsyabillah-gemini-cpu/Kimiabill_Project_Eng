@@ -3,8 +3,8 @@
 # and run: python -m src.tools.brand_assets
 
 brand:
-  name: "BillExplains"
-  handle: "@billexplains"
+  name: "Bill_Explains"
+  handle: "@bill_explains"
   tagline: "EVERYDAY SCI & TECH"
   language: "en"
   gdrive_root_folder: "EverydaySciTech_Studio"

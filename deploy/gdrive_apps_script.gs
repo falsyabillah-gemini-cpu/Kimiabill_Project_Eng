@@ -7,7 +7,7 @@
  * - TELEGRAM_CHAT_ID   : Your personal Telegram numeric chat ID
  * - GITHUB_PAT         : GitHub Personal Access Token (repo scope) to trigger repository_dispatch
  * - GITHUB_REPO        : "falsyabillah-gemini-cpu/Kimiabill_Project_Eng" (default)
- * - BOT_NAME           : Optional display name for bot replies (e.g. "BillExplains")
+ * - BOT_NAME           : Optional display name for bot replies (e.g. "Bill_Explains")
  * - ROOT_FOLDER        : Optional Google Drive root folder (default: "EverydaySciTech_Studio")
  */
 

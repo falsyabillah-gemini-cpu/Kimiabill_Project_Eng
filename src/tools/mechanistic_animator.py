@@ -144,7 +144,7 @@ def draw_mascot_watermark(
     pill_icon: Optional[Image.Image],
     corner_stamp: Optional[Image.Image],
 ) -> None:
-    """Paste Kimiabill Mascot badge onto @kimiabill pill + subtle translucent corner watermark."""
+    """Paste channel mascot badge onto top-left @handle pill + subtle translucent corner watermark."""
     if pill_icon is not None:
         canvas.alpha_composite(pill_icon, (54, 72))
     if corner_stamp is not None:

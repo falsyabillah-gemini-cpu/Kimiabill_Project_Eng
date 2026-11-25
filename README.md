@@ -2,10 +2,10 @@
 
 Automated 8-agent YouTube Shorts / Reels / TikTok studio explaining **everyday science and applied technology** (gadgets, home & urban engineering, materials, transport & energy, bio-sensors) for a global English-speaking audience.
 
-> **Provisional Brand Name:** Currently configured in [`config/brand.yaml`](config/brand.yaml) as **`BillExplains` (`@billexplains`)**.
-> To switch to a finalized channel name/handle at any time, update `brand.name` and `brand.handle` in `config/brand.yaml` and run:
+> **Official Channel Brand:** Configured in [`config/brand.yaml`](config/brand.yaml) as **`Bill_Explains` (`@bill_explains`)** with YouTube Channel Banner ([`assets/channel_banner.png`](assets/channel_banner.png)), Profile Picture ([`assets/profile_picture.png`](assets/profile_picture.png)), Shorts Watermark ([`assets/watermark.png`](assets/watermark.png)), and YouTube Player Watermark ([`assets/youtube_branding_watermark.png`](assets/youtube_branding_watermark.png)).
+> To regenerate branding assets after editing `config/brand.yaml`, run:
 > ```bash
-> python -m src.tools.brand_assets --watermark-only
+> python -m src.tools.brand_assets --branding-kit
 > ```
 
 ## Content Schedule (2 Videos / Day)

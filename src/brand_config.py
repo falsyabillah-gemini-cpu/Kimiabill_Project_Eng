@@ -27,14 +27,14 @@ def get_brand_name() -> str:
     env_override = os.environ.get("BRAND_NAME", "").strip()
     if env_override:
         return env_override
-    return str(load_brand_yaml().get("brand", {}).get("name", "BillExplains")).strip()
+    return str(load_brand_yaml().get("brand", {}).get("name", "Bill_Explains")).strip()
 
 
 def get_brand_handle() -> str:
     env_override = os.environ.get("BRAND_HANDLE", "").strip()
     if env_override:
         return env_override
-    handle = str(load_brand_yaml().get("brand", {}).get("handle", "@billexplains")).strip()
+    handle = str(load_brand_yaml().get("brand", {}).get("handle", "@bill_explains")).strip()
     return handle if handle.startswith("@") else f"@{handle}"
 
 
