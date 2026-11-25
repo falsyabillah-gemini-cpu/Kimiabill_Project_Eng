@@ -18,7 +18,7 @@ import socket
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import requests
 import urllib3.util.connection as _urllib3_conn
@@ -980,7 +980,7 @@ def scout_assets_for_scenes(
                     )
                 nasa_cands = (
                     search_nasa_videos(q, limit=3)
-                    if (not is_kitchen and len(stock_cands) < 2 and len(wiki_cands) < 2)
+                    if (not is_gadget_or_home and len(stock_cands) < 2 and len(wiki_cands) < 2)
                     else []
                 )
                 cands = stock_cands + wiki_cands + nasa_cands
