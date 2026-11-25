@@ -1,0 +1,32 @@
+{
+  "audited_at_wib": "2026-11-25T23:40:32+07:00",
+  "week_ending": "2026-11-25",
+  "overall_status": "KRITIS",
+  "compile_ok": true,
+  "episodes_checked": 1,
+  "gh_runs_checked": 5,
+  "findings": [
+    {
+      "severity": "HIGH",
+      "area": "Cron Schedule / <=15m SLA",
+      "title": "1 upload(s) exceeded the 15-minute SLA after 04:00 / 21:00 WIB",
+      "detail": "ep_20261125_2227 (+116m -> 22:56 WIB)",
+      "fix_hint": "Review GitHub Actions cron offset or Proxy & QA rendering speed."
+    },
+    {
+      "severity": "SEDANG",
+      "area": "Kecepatan Produksi",
+      "title": "1 episode berdurasi produksi >20 menit",
+      "detail": "ep_20261125_2227 (29m)",
+      "fix_hint": "Optimalkan screening footage Agent 6 / timeout API model."
+    },
+    {
+      "severity": "KRITIS",
+      "area": "GitHub Actions Workflow",
+      "title": "2 workflow run mingguan gagal/dibatalkan",
+      "detail": "#45626667115 (failure), #45612453213 (failure)",
+      "fix_hint": "Baca log run gagal di GitHub Actions dan bereskan akar error-nya."
+    }
+  ],
+  "markdown_block": "## Audit Pondasi Sistem & Workflow Mingguan (Antigravity System Check — Status: KRITIS)\n- **Cakupan Pemeriksaan:** Compile Python `src/` (OK), 1 episode minggu ini di arsip, SLA keterlambatan <=15 menit, stabilitas model & fallback, serta 5 run GitHub Actions terakhir.\n- **[HIGH] Cron Schedule / <=15m SLA — 1 upload(s) exceeded the 15-minute SLA after 04:00 / 21:00 WIB:** ep_20261125_2227 (+116m -> 22:56 WIB) *(Saran: Review GitHub Actions cron offset or Proxy & QA rendering speed.)*\n- **[SEDANG] Kecepatan Produksi — 1 episode berdurasi produksi >20 menit:** ep_20261125_2227 (29m) *(Saran: Optimalkan screening footage Agent 6 / timeout API model.)*\n- **[KRITIS] GitHub Actions Workflow — 2 workflow run mingguan gagal/dibatalkan:** #45626667115 (failure), #45612453213 (failure) *(Saran: Baca log run gagal di GitHub Actions dan bereskan akar error-nya.)*\n\n👉 **Butuh Konfirmasi:** Balas **`bereskan`** di chat Antigravity kalau kamu ingin temuan di atas langsung saya perbaiki sekarang."
+}

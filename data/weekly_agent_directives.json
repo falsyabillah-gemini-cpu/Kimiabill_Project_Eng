@@ -1,1 +1,209 @@
-{}
+{
+  "week_ending": "2026-11-25",
+  "summary": "Bill_Explains weekly telemetry audit (25 videos checked; 0 subscribers, 41 total views). [Fallback 0-token analytics summary — Gemini LLM temporarily rate-limited: 429 Client Error: Too Many Requests for url: https://generativelanguage.googleapis.com/v1b]",
+  "top_performing_patterns": [
+    "Top performing Shorts so far: 'BAHAGIA ITU CUMA LETUPAN 2 DETIK: OTAK MANUSIA GA DIDESAIN UNTUK BAHAGIA!!' (8 views), 'DR. TIRTA UNGKAP CARA AMAN BUAT MULAI OLAHRAGA' (6 views), 'Cooking's Biggest Mystery' (4 views)",
+    "Tight 38-48s everyday tech curiosity scripts with zero-spoiler 3-6 word titles"
+  ],
+  "bottlenecks_and_weaknesses": [
+    "Lower-view baseline videos: 'MISKIN: SALAH PEMERINTAH!!!!' (0 views), 'KEMO VS BELAJAR: SAMA-SAMA SAKIT!!' (0 views)",
+    "Gemini API RPM/RPD saturation during peak audit window — retry/fallback kept delivery intact"
+  ],
+  "topic_performance_highlights": [
+    "Top topics: 'BAHAGIA ITU CUMA LETUPAN 2 DETIK: OTAK MANUSIA GA DIDESAIN UNTUK BAHAGIA!!' (8 views), 'DR. TIRTA UNGKAP CARA AMAN BUAT MULAI OLAHRAGA' (6 views), 'Cooking's Biggest Mystery' (4 views)",
+    "Pillar coverage tracked across 5 everyday sci-tech pillars"
+  ],
+  "next_week_topic_map": [
+    {
+      "day_label": "Mon",
+      "slot_time_wib": "04:00",
+      "section": "EVERYDAY_TECH",
+      "discipline": "engineering",
+      "planned_topic": "Why Induction Stoves Stay Cool",
+      "rationale": "Fill untapped engineering gap with magnetic induction physics."
+    },
+    {
+      "day_label": "Mon",
+      "slot_time_wib": "21:00",
+      "section": "EVERYDAY_TECH",
+      "discipline": "energy",
+      "planned_topic": "How Electric Cars Regenerate Braking",
+      "rationale": "Fill untapped energy gap with regenerative braking mechanics."
+    },
+    {
+      "day_label": "Tue",
+      "slot_time_wib": "04:00",
+      "section": "EVERYDAY_TECH",
+      "discipline": "materials",
+      "planned_topic": "Why Nothing Sticks Here",
+      "rationale": "Boost materials discipline following high-performing past tests."
+    },
+    {
+      "day_label": "Tue",
+      "slot_time_wib": "21:00",
+      "section": "EVERYDAY_TECH",
+      "discipline": "gadgets",
+      "planned_topic": "How Phones Pay Without Battery",
+      "rationale": "Boost gadgets discipline using passive NFC coupling."
+    },
+    {
+      "day_label": "Wed",
+      "slot_time_wib": "04:00",
+      "section": "EVERYDAY_TECH",
+      "discipline": "biotech",
+      "planned_topic": "Why Blue Light Tricks Brain",
+      "rationale": "Boost biotech discipline with circadian rhythm science."
+    },
+    {
+      "day_label": "Wed",
+      "slot_time_wib": "21:00",
+      "section": "EVERYDAY_TECH",
+      "discipline": "engineering",
+      "planned_topic": "Why Airplane Windows Have Holes",
+      "rationale": "Explore engineering pressure equalization phenomena."
+    },
+    {
+      "day_label": "Thu",
+      "slot_time_wib": "04:00",
+      "section": "EVERYDAY_TECH",
+      "discipline": "energy",
+      "planned_topic": "How Solar Panels Make Power",
+      "rationale": "Deep dive into photovoltaic p-n junction physics."
+    },
+    {
+      "day_label": "Thu",
+      "slot_time_wib": "21:00",
+      "section": "EVERYDAY_TECH",
+      "discipline": "biotech",
+      "planned_topic": "How Smartwatches Read Pulse",
+      "rationale": "Explore optical photoplethysmography sensor tech."
+    },
+    {
+      "day_label": "Fri",
+      "slot_time_wib": "04:00",
+      "section": "EVERYDAY_TECH",
+      "discipline": "gadgets",
+      "planned_topic": "Why Face ID Works Dark",
+      "rationale": "Highlight infrared dot projector mechanics in gadgets."
+    },
+    {
+      "day_label": "Fri",
+      "slot_time_wib": "21:00",
+      "section": "EVERYDAY_TECH",
+      "discipline": "materials",
+      "planned_topic": "How Filters Clean Dirty Water",
+      "rationale": "Activated carbon micropore adsorption in everyday life."
+    },
+    {
+      "day_label": "Sat",
+      "slot_time_wib": "04:00",
+      "section": "TECH_RADAR",
+      "discipline": "energy",
+      "planned_topic": "Solid State Battery Breakthroughs",
+      "rationale": "Weekend Tech Radar on solid-state battery safety."
+    },
+    {
+      "day_label": "Sat",
+      "slot_time_wib": "21:00",
+      "section": "TECH_RADAR",
+      "discipline": "energy",
+      "planned_topic": "Ultra Fast EV Charging Tech",
+      "rationale": "Weekend Tech Radar on rapid charging innovations."
+    },
+    {
+      "day_label": "Sun",
+      "slot_time_wib": "04:00",
+      "section": "TECH_RADAR",
+      "discipline": "gadgets",
+      "planned_topic": "Next Gen Micro LED Displays",
+      "rationale": "Weekend Tech Radar on next-gen micro-LED screens."
+    },
+    {
+      "day_label": "Sun",
+      "slot_time_wib": "21:00",
+      "section": "TECH_RADAR",
+      "discipline": "engineering",
+      "planned_topic": "Silicon Photonics Chip Revolution",
+      "rationale": "Weekend Tech Radar on optical silicon chips."
+    }
+  ],
+  "flow_clip_prompts": [
+    {
+      "slot_label": "Mon 04:00 WIB (Engineering)",
+      "topic_title": "Why Induction Stoves Stay Cool",
+      "suggested_filename": "induction_coil_glow.mp4",
+      "why_flow_needed": "Visualizes invisible high-frequency magnetic fields generating eddy currents inside cookware.",
+      "flow_prompt_en": "Extreme macro close-up, 9:16 vertical, glowing induction cooktop coil generating invisible magnetic waves, microscopic eddy currents swirling inside metal pan base, hyper-realistic, 8k resolution, cinematic lighting, no text, no watermark.",
+      "recommended_model": "Omni Flash 1.2 (720p, ~18-24 cr)",
+      "estimated_credits": 20
+    },
+    {
+      "slot_label": "Mon 21:00 WIB (Energy)",
+      "topic_title": "How Electric Cars Regenerate Braking",
+      "suggested_filename": "regen_brake_rotor.mp4",
+      "why_flow_needed": "Illustrates dynamic motor reversal converting kinetic energy back into electrical charge.",
+      "flow_prompt_en": "Cinematic vertical macro shot, 9:16, electric car brake rotor and copper stator spinning in reverse, glowing blue electrical current flowing back into lithium battery pack, dark workshop backdrop, photorealistic, no text, no watermark.",
+      "recommended_model": "Omni Flash 1.2 (720p, ~18-24 cr)",
+      "estimated_credits": 20
+    },
+    {
+      "slot_label": "Tue 04:00 WIB (Materials)",
+      "topic_title": "Why Nothing Sticks Here",
+      "suggested_filename": "ptfe_surface_repel.mp4",
+      "why_flow_needed": "Demonstrates molecular fluorine-shielded PTFE chains repelling viscous liquid droplets.",
+      "flow_prompt_en": "Macro 9:16 vertical video, water droplet bouncing completely off non-stick fluorine polymer surface, ultra-low surface tension physics, extreme detail, slow motion, studio lighting, photorealistic, no text, no watermark.",
+      "recommended_model": "Omni Flash 1.2 (720p, ~18-24 cr)",
+      "estimated_credits": 20
+    },
+    {
+      "slot_label": "Thu 21:00 WIB (Biotech)",
+      "topic_title": "How Smartwatches Read Pulse",
+      "suggested_filename": "ppg_wrist_sensor.mp4",
+      "why_flow_needed": "Shows green LED light absorption through skin capillaries to measure blood volume.",
+      "flow_prompt_en": "Macro vertical shot, 9:16, smartwatch optical sensor flashing green light onto human wrist skin, subsurface red capillary blood vessels pulsing rhythmically, medical tech aesthetic, hyper-detailed, no text, no watermark.",
+      "recommended_model": "Omni Flash 1.2 (720p, ~18-24 cr)",
+      "estimated_credits": 20
+    },
+    {
+      "slot_label": "Sat 04:00 WIB (Tech Radar)",
+      "topic_title": "Solid State Battery Breakthroughs",
+      "suggested_filename": "solid_state_ions.mp4",
+      "why_flow_needed": "Visualizes lithium-ion migration across a solid electrolyte ceramic separator.",
+      "flow_prompt_en": "Futuristic macro 9:16 vertical render, lithium ions rapidly migrating through solid ceramic electrolyte membrane, glowing energy particles, clean tech laboratory lighting, photorealistic, no text, no watermark.",
+      "recommended_model": "Omni Flash 1.2 (720p, ~18-24 cr)",
+      "estimated_credits": 20
+    }
+  ],
+  "agent_1_directives": [
+    "Prioritize underrepresented everyday sci-tech pillars and avoid duplicate titles."
+  ],
+  "agent_2_directives": [
+    "Keep 3-6 word zero-spoiler hooks anchored in recognizable daily-life objects."
+  ],
+  "agent_3_directives": [
+    "Maintain 38-48s brisk pacing on weekdays and 45-55s TECH_RADAR depth on weekends."
+  ],
+  "agent_5_directives": [
+    "Reject off-topic B-roll early and verify clean legible subtitles."
+  ],
+  "agent_6_directives": [
+    "Prefer sharp macro tech/lab clips and mechanistic circuit overlays."
+  ],
+  "workflow_efficiency_summary": "Generated via 0-token deterministic telemetry fallback after Gemini rate-limit.",
+  "token_and_cost_optimizations": [
+    "Keep cron offsets staggered from sibling channel to preserve Gemini quota."
+  ],
+  "next_week_experiments": [
+    "Test faster 1.5s physical hook opening vs question hook on weekday slots."
+  ],
+  "recommended_weekend_hours_wib": [
+    "04:00",
+    "21:00"
+  ],
+  "tech_radar_weekend_directives": [
+    "Solid-state battery safety & charging breakthroughs",
+    "Next-gen micro-LED & silicon photonics chips"
+  ],
+  "audience_requests": [],
+  "audience_geo_insights": "Top countries summary: Pending Analytics threshold"
+}

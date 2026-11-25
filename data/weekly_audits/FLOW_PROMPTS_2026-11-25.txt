@@ -1,0 +1,65 @@
+PANDUAN & DAFTAR PROMPT GOOGLE AI FLOW — KIMIABILL STUDIO (2026-11-25)
+====================================================================
+
+1) LINK MENUJU GOOGLE AI FLOW
+   https://labs.google/fx/tools/flow
+
+2) LOKASI MENARUH VIDEO OUTPUT DI GOOGLE DRIVE
+   Folder : Kimiabill_Studio / Flow_Clip_Bank
+   Link   : https://drive.google.com/drive/folders/1fevpiP_ZWgKE8PVpaBvVzlJH472d2twV
+   Penting: Upload hasil MP4 (format vertikal 9:16, durasi 6-8 detik) ke folder ini
+   dengan nama file sesuai daftar di bawah agar Agent 6 otomatis mengenali & memakainya
+   lebih dulu sebelum mencari stok gratis Wikimedia/NASA/Pixabay.
+
+3) LETAK FILE PROMPT MINGGUAN
+   - Langsung di badan email ini (lihat bagian #5 di bawah)
+   - Google Drive : Kimiabill_Studio / Flow_Clip_Bank / PROMPT_GOOGLE_FLOW_TERBARU.txt (https://drive.google.com/file/d/1PnSYKIREKt3Dpe5-YVLbJECGKBm0t6Mw/view?usp=drivesdk)
+   - GitHub Repo  : data/FLOW_PROMPTS_LATEST.txt & data/weekly_audits/FLOW_PROMPTS_2026-11-25.txt
+
+4) CEK SISA KREDIT & PERENCANAAN PENGGUNAAN
+   Agent tidak dapat membaca sisa kredit Google Flow secara otomatis karena tidak ada API saldo akun Google One/Flow.
+Cek saldo langsung di pojok kanan atas profil Google Flow: https://labs.google/fx/tools/flow
+Opsional: isi angka sisa kredit di GitHub Repo Variable `FLOW_CREDITS_REMAINING` agar jumlah prompt minggu depan otomatis menyesuaikan.
+   Perkiraan kebutuhan 5 klip di bawah:
+   - Mode hemat (Veo 3.1 Lite 720p, 10 cr/klip)     : ~50 kredit total
+   - Mode detail (Omni Flash 1.2 720p, 18-24 cr/klip): ~100 kredit total
+   Catatan: Google Flow juga memberi 50 kredit harian (tidak diakumulasi/no rollover).
+
+5) DAFTAR PROMPT SIAP SALIN KE GOOGLE AI FLOW (PILIHAN SAJA, TIDAK SEMUANYA)
+--------------------------------------------------------------------
+[1] Mon 04:00 WIB (Engineering) | Topik: Why Induction Stoves Stay Cool
+    Simpan di Drive sebagai : induction_coil_glow.mp4
+    Model & estimasi kredit : Omni Flash 1.2 (720p, ~18-24 cr) (~20 cr)
+    Kenapa pakai Flow       : Visualizes invisible high-frequency magnetic fields generating eddy currents inside cookware.
+    PROMPT (Copy-Paste)     :
+    Extreme macro close-up, 9:16 vertical, glowing induction cooktop coil generating invisible magnetic waves, microscopic eddy currents swirling inside metal pan base, hyper-realistic, 8k resolution, cinematic lighting, no text, no watermark.
+
+[2] Mon 21:00 WIB (Energy) | Topik: How Electric Cars Regenerate Braking
+    Simpan di Drive sebagai : regen_brake_rotor.mp4
+    Model & estimasi kredit : Omni Flash 1.2 (720p, ~18-24 cr) (~20 cr)
+    Kenapa pakai Flow       : Illustrates dynamic motor reversal converting kinetic energy back into electrical charge.
+    PROMPT (Copy-Paste)     :
+    Cinematic vertical macro shot, 9:16, electric car brake rotor and copper stator spinning in reverse, glowing blue electrical current flowing back into lithium battery pack, dark workshop backdrop, photorealistic, no text, no watermark.
+
+[3] Tue 04:00 WIB (Materials) | Topik: Why Nothing Sticks Here
+    Simpan di Drive sebagai : ptfe_surface_repel.mp4
+    Model & estimasi kredit : Omni Flash 1.2 (720p, ~18-24 cr) (~20 cr)
+    Kenapa pakai Flow       : Demonstrates molecular fluorine-shielded PTFE chains repelling viscous liquid droplets.
+    PROMPT (Copy-Paste)     :
+    Macro 9:16 vertical video, water droplet bouncing completely off non-stick fluorine polymer surface, ultra-low surface tension physics, extreme detail, slow motion, studio lighting, photorealistic, no text, no watermark.
+
+[4] Thu 21:00 WIB (Biotech) | Topik: How Smartwatches Read Pulse
+    Simpan di Drive sebagai : ppg_wrist_sensor.mp4
+    Model & estimasi kredit : Omni Flash 1.2 (720p, ~18-24 cr) (~20 cr)
+    Kenapa pakai Flow       : Shows green LED light absorption through skin capillaries to measure blood volume.
+    PROMPT (Copy-Paste)     :
+    Macro vertical shot, 9:16, smartwatch optical sensor flashing green light onto human wrist skin, subsurface red capillary blood vessels pulsing rhythmically, medical tech aesthetic, hyper-detailed, no text, no watermark.
+
+[5] Sat 04:00 WIB (Tech Radar) | Topik: Solid State Battery Breakthroughs
+    Simpan di Drive sebagai : solid_state_ions.mp4
+    Model & estimasi kredit : Omni Flash 1.2 (720p, ~18-24 cr) (~20 cr)
+    Kenapa pakai Flow       : Visualizes lithium-ion migration across a solid electrolyte ceramic separator.
+    PROMPT (Copy-Paste)     :
+    Futuristic macro 9:16 vertical render, lithium ions rapidly migrating through solid ceramic electrolyte membrane, glowing energy particles, clean tech laboratory lighting, photorealistic, no text, no watermark.
+
+-- Kimiabill Studio Automated Planner
