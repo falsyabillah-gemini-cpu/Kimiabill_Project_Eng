@@ -216,7 +216,7 @@ def run_weekly_foundation_audit(
         )
 
     overall_status = "SEHAT"
-    if any(f["severity"] == "KRITIS" for f in findings):
+    if any(f["severity"] in ("KRITIS", "CRITICAL") for f in findings):
         overall_status = "KRITIS"
     elif findings:
         overall_status = "PERLU PERHATIAN"

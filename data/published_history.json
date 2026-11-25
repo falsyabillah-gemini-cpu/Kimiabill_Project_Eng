@@ -1,1 +1,19 @@
-[]
+[
+  {
+    "episode_id": "ep_20261125_2227",
+    "published_at_wib": "2026-11-25T22:56:52+07:00",
+    "title": "Your Watch's Secret Green Light",
+    "discipline": "biotech",
+    "section": "EVERYDAY_TECH",
+    "youtube_url": "https://youtube.com/shorts/PWoNfrFiY7Q",
+    "gdrive_folder_url": "https://drive.google.com/drive/folders/1PCjD_znvl-e7VCUidqd13JX4WcntDOHZ",
+    "qa_score": 9.5,
+    "duration_sec": 45.0,
+    "hook_line": "",
+    "revisions_used": 1,
+    "topic_attempts_used": 1,
+    "production_seconds": 1750.0,
+    "publish_mode": "public",
+    "agent_models": {}
+  }
+]

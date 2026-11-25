@@ -220,7 +220,9 @@ jobs:
         run: |
           git config user.name "Everyday SciTech Studio Bot"
           git config user.email "bot@studio.local"
-          git add data/published_history.json data/audience_requests.json data/memory.db data/owner_feedback.json 2>/dev/null || true
+          for f in data/published_history.json data/audience_requests.json data/memory.db data/owner_feedback.json; do
+            [ -e "$f" ] && git add "$f" || true
+          done
           if ! git diff --cached --quiet; then
             git commit -m "chore: record published episode for weekly growth audit [skip ci]"
             git pull --rebase origin main || true

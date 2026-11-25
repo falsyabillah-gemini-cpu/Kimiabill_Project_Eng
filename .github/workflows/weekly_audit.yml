@@ -62,7 +62,9 @@ jobs:
         run: |
           git config user.name "Everyday SciTech Studio Bot"
           git config user.email "bot@studio.local"
-          git add data/weekly_agent_directives.json data/weekly_audits/ data/audience_requests.json data/memory.db data/STUDIO_MASTER_DATABASE.csv data/published_history.json data/FLOW_PROMPTS_LATEST.txt 2>/dev/null || true
+          for f in data/weekly_agent_directives.json data/weekly_audits data/audience_requests.json data/memory.db data/STUDIO_MASTER_DATABASE.csv data/published_history.json data/FLOW_PROMPTS_LATEST.txt; do
+            [ -e "$f" ] && git add "$f" || true
+          done
           if ! git diff --cached --quiet; then
             git commit -m "chore: Agent 8 weekly engagement audit & directives [skip ci]"
             git pull --rebase origin main || true
