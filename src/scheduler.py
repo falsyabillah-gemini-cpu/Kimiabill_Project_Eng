@@ -360,7 +360,7 @@ def run_one_automated_episode() -> None:
                         print("[scheduler] Skipping Google Drive upload (GDRIVE_WEBHOOK_URL missing and 'gdrive' CLI not installed).")
                 return
             except Exception as exc:
-                last_err = str(exc) or exc.__class__.__name__
+                last_err = re.sub(r"([?&](?:key|token)=)[^&\s'\"]+", r"\1***", str(exc) or exc.__class__.__name__)
                 print(f"[scheduler] Attempt #{total_attempts_done} (round {recovery_round}.{topic_attempt}) failed: {last_err}")
                 traceback.print_exc()
                 if title and title != "-" and title not in avoid_titles:

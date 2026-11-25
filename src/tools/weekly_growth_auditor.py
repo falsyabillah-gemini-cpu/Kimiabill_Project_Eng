@@ -1168,7 +1168,7 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             )
             break
         except Exception as exc:
-            last_a8_err = str(exc) or exc.__class__.__name__
+            last_a8_err = re.sub(r"([?&](?:key|token)=)[^&\s'\"]+", r"\1***", str(exc) or exc.__class__.__name__)
             print(f"[agent8] LLM audit attempt {a8_try}/2 failed ({last_a8_err[:180]})")
             if a8_try < 2:
                 time.sleep(45)
