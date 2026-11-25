@@ -1,0 +1,68 @@
+name: Weekly Social Media Audit (Agent 8)
+
+on:
+  schedule:
+    # Every Sunday at 21:30 WIB (14:30 UTC) — 30m after Sunday's 21:00 WIB video and 90m after Kimiabill's audit
+    - cron: "30 14 * * 0"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run mode: full_weekly_audit or send_flow_prompts_email"
+        required: false
+        default: "full_weekly_audit"
+        type: choice
+        options:
+          - full_weekly_audit
+          - send_flow_prompts_email
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  weekly-growth-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Agent 8 Weekly Audit or Send Google AI Flow Prompts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
+          GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
+          STUDIO_SHEET_ID: ${{ secrets.STUDIO_SHEET_ID || vars.STUDIO_SHEET_ID }}
+          NOTIFY_EMAIL_TO: ${{ vars.NOTIFY_EMAIL_TO || 'researchfalsyabillah@gmail.com' }}
+          NOTIFY_EMAIL_ALSO: ${{ vars.NOTIFY_EMAIL_ALSO || 'true' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FLOW_CREDITS_REMAINING: ${{ vars.FLOW_CREDITS_REMAINING || '' }}
+          AUDIT_DISPATCH_MODE: ${{ github.event.inputs.mode || 'full_weekly_audit' }}
+        run: |
+          if [ "$AUDIT_DISPATCH_MODE" = "send_flow_prompts_email" ]; then
+            python -c "from src.tools.weekly_growth_auditor import send_flow_prompts_and_guide_email; res = send_flow_prompts_and_guide_email(); assert res.get('emailed_to') or res.get('telegram_sent'), f'Notification failed: {res}'"
+          else
+            python -c "from src.tools.weekly_growth_auditor import run_agent_8_weekly_audit; run_agent_8_weekly_audit()"
+          fi
+
+      - name: Commit Updated Cross-Agent Directives
+        run: |
+          git config user.name "Everyday SciTech Studio Bot"
+          git config user.email "bot@studio.local"
+          git add data/weekly_agent_directives.json data/weekly_audits/ data/audience_requests.json data/memory.db data/STUDIO_MASTER_DATABASE.csv data/published_history.json data/FLOW_PROMPTS_LATEST.txt 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: Agent 8 weekly engagement audit & directives [skip ci]"
+            git pull --rebase origin main || true
+            git push
+          fi

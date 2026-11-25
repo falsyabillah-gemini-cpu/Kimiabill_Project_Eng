@@ -1,0 +1,246 @@
+{
+  "version": "1.0",
+  "description": "Balanced 30-idea fallback bank for Everyday Sci-Tech Shorts across 5 applied pillars (6 per pillar)",
+  "ideas": [
+    {
+      "id": "gad_01",
+      "discipline": "gadgets",
+      "title": "How Your Phone Pays Without Battery",
+      "phenomenon": "Passive NFC inductive coupling powering a card/phone chip at 13.56 MHz",
+      "hook_3s": "Ever wonder how a dead phone or plastic card can still tap to pay?",
+      "real_footage_keywords": ["contactless payment tap phone", "credit card terminal", "microchip closeup"]
+    },
+    {
+      "id": "gad_02",
+      "discipline": "gadgets",
+      "title": "Why Black Pixels Save OLED Battery",
+      "phenomenon": "Self-emissive OLED organic diodes turning off individual black pixels vs backlit LCD",
+      "hook_3s": "Dark mode isn't just for your eyes — on this screen, black actually turns pixels off!",
+      "real_footage_keywords": ["smartphone screen macro", "dark mode phone night", "oled pixel display"]
+    },
+    {
+      "id": "gad_03",
+      "discipline": "gadgets",
+      "title": "How Earbuds Erase Airplane Roar",
+      "phenomenon": "Active noise cancellation using destructive wave interference (180-degree phase flip)",
+      "hook_3s": "These tiny earbuds don't block noise — they fight sound by creating anti-sound!",
+      "real_footage_keywords": ["wireless earbuds closeup", "airplane window passenger", "sound wave animation"]
+    },
+    {
+      "id": "gad_04",
+      "discipline": "gadgets",
+      "title": "Why Fast Charging Slows at 80%",
+      "phenomenon": "Constant-current to constant-voltage Li-ion charging curve preventing lithium plating",
+      "hook_3s": "Your phone rockets from 0 to 80% in minutes, then crawls to 100 — here's why!",
+      "real_footage_keywords": ["phone charging cable", "battery charging screen", "lithium battery closeup"]
+    },
+    {
+      "id": "gad_05",
+      "discipline": "gadgets",
+      "title": "Why Phone Cameras Look So Sharp",
+      "phenomenon": "Computational photography stacking multi-frame bursts and lens stabilization",
+      "hook_3s": "A lens smaller than a fingernail shouldn't beat a DSLR — until your phone cheats!",
+      "real_footage_keywords": ["smartphone camera lens", "taking photo night city", "camera aperture closeup"]
+    },
+    {
+      "id": "gad_06",
+      "discipline": "gadgets",
+      "title": "How Touchscreens Ignore Your Gloves",
+      "phenomenon": "Projected capacitive grid sensing changes in the human body's electric field",
+      "hook_3s": "Pressing harder won't wake a touchscreen — your phone only listens to electricity!",
+      "real_footage_keywords": ["finger scrolling smartphone", "touchscreen glass closeup", "typing phone winter"]
+    },
+    {
+      "id": "eng_01",
+      "discipline": "engineering",
+      "title": "Why Induction Stoves Stay Cool",
+      "phenomenon": "High-frequency magnetic fields inducing eddy currents directly inside ferromagnetic cookware",
+      "hook_3s": "This stove boils water in seconds, yet you can touch the glass right next to the pot!",
+      "real_footage_keywords": ["induction stove boiling water", "frying pan cooking kitchen", "magnetic coil closeup"]
+    },
+    {
+      "id": "eng_02",
+      "discipline": "engineering",
+      "title": "Why Microwaves Leave Cold Spots",
+      "phenomenon": "Standing electromagnetic wave nodes inside a resonant cavity requiring a turntable",
+      "hook_3s": "Why is your bowl scorching hot while the middle of your food is still frozen?",
+      "real_footage_keywords": ["microwave oven spinning plate", "heating food microwave", "kitchen timer closeup"]
+    },
+    {
+      "id": "eng_03",
+      "discipline": "engineering",
+      "title": "How Elevators Never Freefall",
+      "phenomenon": "Centrifugal overspeed governor triggering mechanical wedge brakes on guide rails",
+      "hook_3s": "Even if every elevator cable snapped at once, this 1852 trick still catches you!",
+      "real_footage_keywords": ["elevator doors opening", "skyscraper elevator shaft", "steel cable pulley"]
+    },
+    {
+      "id": "eng_04",
+      "discipline": "engineering",
+      "title": "Why Traffic Lights Know You Arrived",
+      "phenomenon": "Inductive wire loops buried in asphalt detecting metal vehicle mass via inductance shift",
+      "hook_3s": "Notice those rectangle cuts in the road? They're giant metal detectors watching your car!",
+      "real_footage_keywords": ["traffic light intersection", "cars waiting red light", "asphalt road closeup"]
+    },
+    {
+      "id": "eng_05",
+      "discipline": "engineering",
+      "title": "How Noise-Free Fridges Make Cold",
+      "phenomenon": "Vapor-compression cycle expanding refrigerant through an expansion valve to absorb heat",
+      "hook_3s": "Your fridge doesn't actually make cold — it steals heat and dumps it behind your kitchen!",
+      "real_footage_keywords": ["opening refrigerator door", "cold ice frost freezer", "copper coils condenser"]
+    },
+    {
+      "id": "eng_06",
+      "discipline": "engineering",
+      "title": "Why Bridges Have Weird Metal Teeth",
+      "phenomenon": "Thermal expansion joints preventing buckling in steel and concrete under temperature swings",
+      "hook_3s": "Those clunky metal teeth on bridges aren't sloppy construction — they stop the road from exploding!",
+      "real_footage_keywords": ["bridge expansion joint", "highway bridge cars", "steel bridge structure"]
+    },
+    {
+      "id": "mat_01",
+      "discipline": "materials",
+      "title": "Why Nothing Sticks to This Pan",
+      "phenomenon": "Fluorine-shielded PTFE polymer chains creating ultra-low surface energy",
+      "hook_3s": "If nothing sticks to Teflon, how on earth did they get it to stick to the pan?",
+      "real_footage_keywords": ["nonstick frying pan egg", "cooking pan oil", "metal surface closeup"]
+    },
+    {
+      "id": "mat_02",
+      "discipline": "materials",
+      "title": "Why Your Phone Glass Survives Drops",
+      "phenomenon": "Ion-exchange chemical strengthening swapping sodium for larger potassium ions in Gorilla Glass",
+      "hook_3s": "Chemists force-fed giant potassium atoms into glass to armor your screen against concrete!",
+      "real_footage_keywords": ["smartphone screen water drop", "glass screen closeup", "phone drop floor"]
+    },
+    {
+      "id": "mat_03",
+      "discipline": "materials",
+      "title": "Why Car Windows Shatter Into Pebbles",
+      "phenomenon": "Tempered glass internal compressive-tensile stress balance vs laminated windshield PVB layer",
+      "hook_3s": "Why does a side window explode into harmless cubes while a windshield stays in one piece?",
+      "real_footage_keywords": ["car windshield rain", "tempered glass texture", "car window closeup"]
+    },
+    {
+      "id": "mat_04",
+      "discipline": "materials",
+      "title": "Why Plastic Bottles Turn Cloudy White",
+      "phenomenon": "Crazing and stress-induced polymer chain alignment scattering light when bent",
+      "hook_3s": "Bend a clear plastic spoon and a white streak appears — you just rearranged its molecules!",
+      "real_footage_keywords": ["plastic bottle crushing", "clear plastic macro", "sunlight refraction plastic"]
+    },
+    {
+      "id": "mat_05",
+      "discipline": "materials",
+      "title": "Why Stainless Steel Never Rusts",
+      "phenomenon": "Self-healing nanometer-thin chromium oxide passive layer sealing steel from oxygen",
+      "hook_3s": "Scratch a stainless sink and it repairs its invisible armor in milliseconds!",
+      "real_footage_keywords": ["stainless steel kitchen sink", "metal polishing closeup", "water droplets metal"]
+    },
+    {
+      "id": "mat_06",
+      "discipline": "materials",
+      "title": "Why Memory Foam Remembers Your Hand",
+      "phenomenon": "Viscoelastic open-cell polyurethane softening with body heat and slow air rebound",
+      "hook_3s": "Push into memory foam and watch it freeze — it's actually waiting for your body heat!",
+      "real_footage_keywords": ["pressing hand memory foam", "pillow bed texture", "foam sponge macro"]
+    },
+    {
+      "id": "ene_01",
+      "discipline": "energy",
+      "title": "How Electric Cars Refuel While Braking",
+      "phenomenon": "Regenerative braking reversing the traction motor into a generator to recharge the battery",
+      "hook_3s": "Every time an electric car slows down, its wheels run backward as a power plant!",
+      "real_footage_keywords": ["electric car charging", "car wheel braking city", "ev dashboard energy"]
+    },
+    {
+      "id": "ene_02",
+      "discipline": "energy",
+      "title": "Why Airplane Windows Have Tiny Holes",
+      "phenomenon": "Bleed hole equalizing cabin pressure across outer structural acrylic panes",
+      "hook_3s": "Notice that tiny pinhole at the bottom of an airplane window? It stops it from blowing out!",
+      "real_footage_keywords": ["airplane window clouds", "jet wing flying", "aircraft cabin window"]
+    },
+    {
+      "id": "ene_03",
+      "discipline": "energy",
+      "title": "How Solar Panels Turn Sunlight Into Power",
+      "phenomenon": "Photovoltaic p-n junction freeing electrons via photon energy bandgaps",
+      "hook_3s": "Zero moving parts, zero fuel — how does plain sunlight push electrons out of silicon?",
+      "real_footage_keywords": ["solar panels rooftop sun", "sunlight sky timelapse", "silicon wafer closeup"]
+    },
+    {
+      "id": "ene_04",
+      "discipline": "energy",
+      "title": "Why Power Lines Buzz in Rain",
+      "phenomenon": "Corona discharge ionizing humid air around high-voltage conductors",
+      "hook_3s": "Ever heard overhead power lines crackle on foggy nights? The air itself is sparking!",
+      "real_footage_keywords": ["high voltage power lines", "rainy evening city", "electricity tower sunset"]
+    },
+    {
+      "id": "ene_05",
+      "discipline": "energy",
+      "title": "Why White Roofs Cool Whole Cities",
+      "phenomenon": "High solar albedo + radiative cooling reflecting infrared energy back to space",
+      "hook_3s": "One bucket of ultra-white paint can drop a rooftop's temperature below the air around it!",
+      "real_footage_keywords": ["white building rooftop sun", "city skyline summer heat", "painting roof white"]
+    },
+    {
+      "id": "ene_06",
+      "discipline": "energy",
+      "title": "Why Wind Turbines Have Three Blades",
+      "phenomenon": "Aerodynamic tip-speed ratio vs gyroscopic yaw stability and cost trade-off",
+      "hook_3s": "Why three blades instead of two or ten? Add one more and physics starts losing money!",
+      "real_footage_keywords": ["wind turbine spinning", "offshore wind farm", "wind energy landscape"]
+    },
+    {
+      "id": "bio_01",
+      "discipline": "biotech",
+      "title": "How Smartwatches Read Your Pulse",
+      "phenomenon": "Photoplethysmography (PPG) flashing green LEDs to measure blood volume absorption",
+      "hook_3s": "Flip your smartwatch over — that green light is actually measuring shadows of your blood!",
+      "real_footage_keywords": ["smartwatch green light wrist", "running fitness tracker", "heart rate monitor"]
+    },
+    {
+      "id": "bio_02",
+      "discipline": "biotech",
+      "title": "Why Blue Light Tricks Your Brain",
+      "phenomenon": "480nm melanopsin retinal ganglion cells suppressing melatonin secretion",
+      "hook_3s": "One glance at your phone at 2 AM sends a fake sunrise straight into your brain!",
+      "real_footage_keywords": ["scrolling phone bed night", "blue screen face glow", "sleeping person bedroom"]
+    },
+    {
+      "id": "bio_03",
+      "discipline": "biotech",
+      "title": "How Filters Clean Dirty Water",
+      "phenomenon": "Activated carbon micropore adsorption trapping chlorine and organic odors",
+      "hook_3s": "One teaspoon of this black powder hides more surface area than an entire football field!",
+      "real_footage_keywords": ["pouring filtered water glass", "water pitcher filter", "activated charcoal macro"]
+    },
+    {
+      "id": "bio_04",
+      "discipline": "biotech",
+      "title": "Why Face ID Works in Pitch Dark",
+      "phenomenon": "Infrared dot projector mapping 30,000 invisible 3D points on facial contours",
+      "hook_3s": "Your phone unlocks in total darkness by blasting your face with 30,000 invisible dots!",
+      "real_footage_keywords": ["unlocking smartphone face", "dark room phone face", "infrared sensor tech"]
+    },
+    {
+      "id": "bio_05",
+      "discipline": "biotech",
+      "title": "Why VR Headsets Make You Dizzy",
+      "phenomenon": "Vestibular-visual sensory conflict between inner-ear fluid and 90fps optical flow",
+      "hook_3s": "Your eyes swear you're riding a rollercoaster, while your inner ear calls out the lie!",
+      "real_footage_keywords": ["person wearing vr headset", "virtual reality gaming", "digital motion tunnel"]
+    },
+    {
+      "id": "bio_06",
+      "discipline": "biotech",
+      "title": "How Air Fryers Crisp Without Oil",
+      "phenomenon": "Rapid superheated convection + Maillard dehydration mimicking deep frying",
+      "hook_3s": "An air fryer isn't frying anything — it's blasting your food with a miniature hurricane!",
+      "real_footage_keywords": ["air fryer crispy fries", "kitchen cooking hot air", "crispy food closeup"]
+    }
+  ]
+}

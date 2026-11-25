@@ -1,0 +1,90 @@
+# Central Brand Configuration
+# NOTE: If you change the channel name/handle later, update `name` and `handle` below
+# and run: python -m src.tools.brand_assets
+
+brand:
+  name: "BillExplains"
+  handle: "@billexplains"
+  tagline: "EVERYDAY SCI & TECH"
+  language: "en"
+  gdrive_root_folder: "EverydaySciTech_Studio"
+  niche: "Everyday science and applied technology (gadgets, home & urban engineering, materials, transport & energy, bio-sensors) explained clearly for a global audience"
+  disciplines:
+    - "gadgets"
+    - "engineering"
+    - "materials"
+    - "energy"
+    - "biotech"
+  ideation_policy:
+    viral_first: true
+    viral_lookback_hours: 72
+    min_viral_matches: 2
+    fallback_source: "data/idea_bank.json"
+    balance_disciplines: true
+  audience: "Global English-speaking YouTube Shorts/Reels/TikTok viewers curious about how everyday technology and science work around them"
+  tone:
+    - "Curious, witty, energetic, and friendly — never dry or textbook-heavy"
+    - "Natural conversational US/Global English"
+    - "Use vivid everyday analogies instead of unexplained technical jargon"
+
+schedule:
+  # 2 videos/day timed for global international prime-time (US/EU peak)
+  # and intentionally offset from Kimiabill (12:00 / 19:00 WIB) to avoid Gemini API rate-limit collisions.
+  daily_slots_wib:
+    - "04:00"  # 16:00 EST (US afternoon / evening peak)
+    - "21:00"  # 09:00 EST / 14:00 UTC (EU afternoon & US morning peak)
+  weekend_section: "TECH_RADAR"
+  weekday_section: "EVERYDAY_TECH"
+
+video:
+  format: "9:16"
+  proxy_resolution: [480, 854]
+  proxy_fps: 15
+  final_resolution: [1080, 1920]
+  final_fps: 30
+  target_duration_sec: [38, 56]
+  visual_policy:
+    real_footage_only: true
+    no_full_animation: true
+    mechanistic_overlay: true
+    overlay_style: "comic_science_hybrid"
+    overlay_policy: "Real footage as base + crisp 30fps mechanistic diagram/circuit/physics overlay to reveal what happens inside everyday tech"
+  mascot:
+    enabled: true
+    style: "option_b_duo"
+    assets_dir: "assets/mascots"
+    poses: ["curious", "explain", "celebrate"]
+  safe_zone:
+    top_margin_pct: 12
+    bottom_margin_pct: 22
+    side_margin_pct: 7
+
+voice:
+  prefer_elevenlabs: true
+  engine: "edge_tts"
+  voice_name: "en-US-AndrewNeural"
+  style_notes: "Warm, articulate, energetic young-adult male narrator — crisp pronunciation, upbeat Shorts pacing"
+  rate: "+2%"
+  pitch: "+2Hz"
+  target_wpm: [145, 175]
+
+audio_mix:
+  voice_lufs: -15.0
+  sfx_gain_db: -10.0
+  bgm_gain_db: -24.0
+
+publishing:
+  default_mode: "public"   # "dry_run" | "draft" (YouTube Unlisted) | "public"
+  platforms:
+    - "youtube_shorts"
+    # Enable when ready:
+    # - "tiktok"
+    # - "instagram_reels"
+  generate_thumbnail: true
+  tracking_sheet_id: ""
+
+guardrails:
+  max_revisions: 4
+  max_topic_attempts: 3
+  min_idea_score: 7.5
+  min_qa_score: 8.0

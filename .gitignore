@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.env
+data/sfx_cache/
+episodes/*/renders/
+episodes/*/assets/*.raw_dl
+episodes/*/assets/*.mp4
+episodes/*/_qa_frames/
+episodes/*/*.mp4
+.DS_Store
+references/

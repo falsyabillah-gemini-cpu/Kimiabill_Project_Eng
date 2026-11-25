@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BillExplains 2D Virtual Office — 8 AI Agents Live Monitor</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    :root {
+      --background: #0b1120;
+      --card: #111827;
+      --border: #1f2937;
+      --foreground: #f8fafc;
+      --muted-foreground: #94a3b8;
+      --primary: #38bdf8;
+      --primary-foreground: #0f172a;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --link: #38bdf8;
+    }
+  </style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased m-0 p-4">
+  <div class="max-w-6xl mx-auto space-y-4">
+    <!-- Top Control Bar -->
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="inline-block w-2.5 h-2.5 rounded-full bg-[var(--success)] animate-pulse"></span>
+          <h1 class="text-base font-bold tracking-tight">BillExplains Studio 2D Office — 8 Autonomous AI Agents</h1>
+        </div>
+        <p class="text-xs text-[var(--muted-foreground)] mt-0.5">
+          0-Token Monitor • 2x Daily: <b>03:20 → 04:00 WIB</b> &amp; <b>20:20 → 21:00 WIB</b> • Weekends: <b>TECH_RADAR Edition</b> • Audit: <b>Sunday 21:30 WIB</b>
+        </p>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2 text-xs">
+        <div class="px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] font-mono tabular-nums">
+          <span class="text-[var(--muted-foreground)]">WIB:</span>
+          <span id="wibClock" class="font-bold">--:--:--</span>
+          <span class="mx-1.5 text-[var(--muted-foreground)]">|</span>
+          <span id="countdownText" class="text-[var(--primary)] font-semibold">Menghitung jadwal...</span>
+        </div>
+        <button id="btnSim" class="px-3 py-1.5 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] font-semibold hover:opacity-90 transition cursor-pointer">
+          ▶ Simulasi Shift Malam
+        </button>
+        <button id="btnRefresh" class="px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] hover:opacity-80 transition cursor-pointer">
+          ↻ Cek GitHub Live
+        </button>
+      </div>
+    </div>
+
+    <!-- Main 2D Office Canvas + Agent Inspector -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <!-- 2D Office Floor -->
+      <div class="lg:col-span-2 bg-[var(--card)] border border-[var(--border)] rounded-xl p-3 flex flex-col gap-2">
+        <div class="flex items-center justify-between text-xs px-1">
+          <span id="officeBanner" class="font-semibold text-[var(--foreground)]">Mode: Memantau Status Langsung</span>
+          <span class="text-[var(--muted-foreground)]">Klik karakter agent di kantor untuk detail</span>
+        </div>
+        <div class="w-full overflow-hidden rounded-lg border border-[var(--border)]">
+          <canvas id="officeCanvas" width="840" height="500" class="w-full h-auto block cursor-pointer"></canvas>
+        </div>
+        <!-- Live Pipeline Progress Strip -->
+        <div id="stageStrip" class="grid grid-cols-4 sm:grid-cols-8 gap-1.5 text-center text-xs pt-1"></div>
+      </div>
+
+      <!-- Right Sidebar: Selected Agent + Live Status -->
+      <div class="space-y-4">
+        <!-- Agent Detail Card -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span id="detailBadge" class="text-xs font-bold px-2 py-0.5 rounded bg-[var(--primary)] text-[var(--primary-foreground)]">AGENT 1</span>
+            <span id="detailState" class="text-xs font-semibold text-[var(--success)]">Siaga</span>
+          </div>
+          <h2 id="detailName" class="text-sm font-bold">Trend Scout & Ideasi</h2>
+          <p id="detailDesc" class="text-xs text-[var(--muted-foreground)] leading-relaxed"></p>
+          <div class="pt-2 border-t border-[var(--border)]">
+            <div class="text-xs font-semibold mb-1">Status Tugas Saat Ini:</div>
+            <div id="detailTask" class="text-xs p-2 rounded-lg bg-[var(--background)] border border-[var(--border)] font-mono"></div>
+          </div>
+          <div class="pt-2 border-t border-[var(--border)]">
+            <div class="text-xs font-semibold mb-1">Arahan Mingguan dari Agent 8:</div>
+            <ul id="detailDirectives" class="text-xs text-[var(--muted-foreground)] list-disc pl-4 space-y-1"></ul>
+          </div>
+        </div>
+
+        <!-- Live GitHub Feed -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground)]">Aktivitas Terbaru</h3>
+            <span id="ghSyncStatus" class="text-xs text-[var(--muted-foreground)]">Memuat...</span>
+          </div>
+          <div id="recentFeed" class="space-y-2 text-xs"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const REPO = "falsyabillah-gemini-cpu/Kimiabill_Project_Eng";
+
+    const AGENTS = [
+      {
+        id: 1, key: "agent_1_directives", short: "A1 Trend", name: "Agent 1 — Trend & Ideation",
+        role: "Scans everyday sci-tech breakthroughs (Gadgets, Engineering, Materials, Energy, Biotech) and selects 5 candidate ideas.",
+        x: 115, y: 125, shirt: "#2563eb", hair: "#0ea5e9", deskLabel: "TREND RADAR",
+        activeMsg: "Scanning 72h tech & science feeds...", idleMsg: "Waiting for next slot (03:20 / 20:20 WIB)"
+      },
+      {
+        id: 2, key: "agent_2_directives", short: "A2 Editor", name: "Agent 2 — Auditor Hook & Ide",
+        role: "Menilai 5 kandidat dari Agent 1, memilih 1 pemenang paling menarik, dan memberi catatan perbaikan hook.",
+        x: 295, y: 125, shirt: "#7c3aed", hair: "#3b1d0f", deskLabel: "MEJA SKOR",
+        activeMsg: "Nilai hook & pilih juara #1", idleMsg: "Siap audit ide baru"
+      },
+      {
+        id: 3, key: "agent_3_directives", short: "A3 Skrip", name: "Agent 3 — Penulis & Storyboard",
+        role: "Menulis naskah Indonesia 30–38 detik (5 scene), spesifikasi animasi mekanistik 30fps, CTA follow, & daftar referensi.",
+        x: 475, y: 125, shirt: "#0891b2", hair: "#0f172a", deskLabel: "STORYBOARD",
+        activeMsg: "Rancang naskah & mekanisme", idleMsg: "Papan sketsa siap"
+      },
+      {
+        id: 6, key: "agent_6_directives", short: "A6 Footage", name: "Agent 6 — Pencari Footage & Safety",
+        role: "Mencari video sains asli + filter keamanan 3 lapis (blokir NSFW & Gemini Vision cek 3 frame per klip).",
+        x: 115, y: 315, shirt: "#ea580c", hair: "#1f2937", deskLabel: "SAFETY SCAN",
+        activeMsg: "Cek 3 frame Vision Safety...", idleMsg: "Filter keamanan aktif"
+      },
+      {
+        id: 4, key: "agent_3_directives", short: "A4 Render", name: "Agent 4 — Animator & Dubbing",
+        role: "Dubbing suara profesional ElevenLabs + render animasi mekanistik 30fps, maskot, subtitle, & end-card referensi.",
+        x: 295, y: 315, shirt: "#059669", hair: "#111827", deskLabel: "STUDIO 30FPS",
+        activeMsg: "Render 30fps + ElevenLabs...", idleMsg: "Mesin FFmpeg siaga"
+      },
+      {
+        id: 5, key: "agent_5_directives", short: "A5 QA", name: "Agent 5 — Auditor Video Ketat",
+        role: "Mengaudit contact sheet & end-card. Jika skor < 8.0, menolak & menyuruh revisi otomatis (maks 4x / ganti topik).",
+        x: 475, y: 315, shirt: "#dc2626", hair: "#1e1b4b", deskLabel: "GERBANG QA",
+        activeMsg: "Audit visual, kontras & QA...", idleMsg: "Batas lolos: ≥ 8.0/10"
+      },
+      {
+        id: 7, key: "agent_1_directives", short: "A7 Upload", name: "Agent 7 — Publisher 19:00 WIB",
+        role: "Mengemas thumbnail & SEO caption, menunggu jam rame 19:00 WIB, lalu upload ke YouTube Shorts, Drive, & Email.",
+        x: 695, y: 315, shirt: "#db2777", hair: "#1e293b", deskLabel: "SIARAN 19:00",
+        activeMsg: "Upload YouTube & Drive!", idleMsg: "Antre prime time 19:00"
+      },
+      {
+        id: 8, key: "token_and_cost_optimizations", short: "A8 Chief", name: "Agent 8 — Auditor Tertinggi Mingguan",
+        role: "Bekerja tiap Minggu 20:00 WIB: audit engagement sosial media + efisiensi workflow & token, lalu upgrade semua agent.",
+        x: 695, y: 125, shirt: "#d97706", hair: "#0f172a", deskLabel: "RUANG CHIEF",
+        activeMsg: "Audit mingguan & optimasi!", idleMsg: "Jadwal: Minggu 20:00 WIB"
+      }
+    ];
+
+    const PIPELINE_ORDER = [1, 2, 3, 6, 4, 5, 7, 8];
+    let selectedId = 1;
+    let simMode = false;
+    let simStep = 0;
+    let simTimer = 0;
+    let liveState = {
+      running: false,
+      lastConclusion: "success",
+      lastRunTime: null,
+      directives: {},
+      history: [
+        {
+          title: "Bahan Unik Ini Malah Makin Kuat Kalau Sering Ditekuk!",
+          discipline: "kimia",
+          qa_score: 9.5,
+          youtube_url: "https://youtube.com/shorts/av3gJNphSpg",
+          published_at_wib: "2026-11-23 11:36 WIB"
+        }
+      ]
+    };
+
+    const canvas = document.getElementById("officeCanvas");
+    const ctx = canvas.getContext("2d");
+
+    function getThemePalette() {
+      const isLight = document.documentElement.classList.contains("light") ||
+        (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches &&
+         !document.documentElement.classList.contains("dark"));
+      return isLight ? {
+        floor: "#f1f5f9", grid: "#e2e8f0", wall: "#cbd5e1", chiefFloor: "#fef3c7",
+        desk: "#92400e", deskTop: "#d97706", monitor: "#1e293b", screenIdle: "#334155",
+        screenActive: "#38bdf8", text: "#0f172a", muted: "#475569", bubbleBg: "#ffffff",
+        bubbleBorder: "#0f172a", glass: "rgba(14,165,233,0.12)", glassBorder: "#0284c7"
+      } : {
+        floor: "#131926", grid: "#1e293b", wall: "#293548", chiefFloor: "#272115",
+        desk: "#451a03", deskTop: "#78350f", monitor: "#0f172a", screenIdle: "#1e293b",
+        screenActive: "#38bdf8", text: "#f8fafc", muted: "#94a3b8", bubbleBg: "#1e293b",
+        bubbleBorder: "#64748b", glass: "rgba(56,189,248,0.10)", glassBorder: "#38bdf8"
+      };
+    }
+
+    function getWibNow() {
+      const now = new Date();
+      const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+      return new Date(utc + 7 * 3600000);
+    }
+
+    function updateClock() {
+      const wib = getWibNow();
+      const hh = String(wib.getHours()).padStart(2, "0");
+      const mm = String(wib.getMinutes()).padStart(2, "0");
+      const ss = String(wib.getSeconds()).padStart(2, "0");
+      document.getElementById("wibClock").textContent = `${hh}:${mm}:${ss}`;
+
+      const minsNow = wib.getHours() * 60 + wib.getMinutes();
+      const s1Start = 11 * 60 + 25, s1Post = 12 * 60;
+      const s2Start = 18 * 60 + 25, s2Post = 19 * 60;
+      let msg = "";
+      if (minsNow < s1Start) {
+        const diff = s1Start - minsNow;
+        msg = `Shift Siang ${Math.floor(diff / 60)}j ${diff % 60}m lagi`;
+      } else if (minsNow < s1Post) {
+        msg = `Produksi Siang → post ${s1Post - minsNow}m lagi`;
+      } else if (minsNow < s2Start) {
+        const diff = s2Start - minsNow;
+        msg = `Shift Malam ${Math.floor(diff / 60)}j ${diff % 60}m lagi`;
+      } else if (minsNow < s2Post) {
+        msg = `Produksi Malam → post ${s2Post - minsNow}m lagi`;
+      } else {
+        const diff = (24 * 60 - minsNow) + s1Start;
+        msg = `Shift Besok ${Math.floor(diff / 60)}j ${diff % 60}m lagi`;
+      }
+      document.getElementById("countdownText").textContent = msg;
+    }
+
+    function getAgentStatus(agent) {
+      if (simMode) {
+        const curId = PIPELINE_ORDER[simStep];
+        const idx = PIPELINE_ORDER.indexOf(agent.id);
+        if (agent.id === curId) return "working";
+        if (idx < simStep) return "done";
+        return "idle";
+      }
+      const wib = getWibNow();
+      const mins = wib.getHours() * 60 + wib.getMinutes();
+      if (liveState.running) {
+        const cycle = Math.floor(Date.now() / 3500) % 7;
+        const activeId = PIPELINE_ORDER[cycle];
+        return agent.id === activeId ? "working" : (PIPELINE_ORDER.indexOf(agent.id) < cycle ? "done" : "idle");
+      }
+      if (wib.getDay() === 0 && wib.getHours() === 20 && agent.id === 8) return "working";
+      const inLunch = mins >= 11 * 60 + 25 && mins <= 12 * 60 + 5;
+      const inEvening = mins >= 18 * 60 + 25 && mins <= 19 * 60 + 5;
+      if ((inLunch || inEvening) && agent.id !== 8) return "working";
+      return "idle";
+    }
+
+    function renderStageStrip() {
+      const el = document.getElementById("stageStrip");
+      el.innerHTML = PIPELINE_ORDER.map(id => {
+        const a = AGENTS.find(x => x.id === id);
+        const st = getAgentStatus(a);
+        const isSel = id === selectedId;
+        const dot = st === "working" ? "bg-[var(--warning)] animate-pulse" : st === "done" ? "bg-[var(--success)]" : "bg-[var(--muted-foreground)] opacity-40";
+        return `<button onclick="selectAgent(${id})" class="px-1.5 py-1.5 rounded-lg border ${isSel ? "border-[var(--primary)] bg-[var(--background)]" : "border-[var(--border)]"} flex flex-col items-center gap-1 cursor-pointer hover:opacity-90">
+          <span class="w-2 h-2 rounded-full ${dot}"></span>
+          <span class="font-semibold truncate w-full">${a.short}</span>
+        </button>`;
+      }).join("");
+    }
+
+    window.selectAgent = function(id) {
+      selectedId = id;
+      updateInspector();
+      renderStageStrip();
+    };
+
+    function updateInspector() {
+      const a = AGENTS.find(x => x.id === selectedId);
+      if (!a) return;
+      const st = getAgentStatus(a);
+      document.getElementById("detailBadge").textContent = `AGENT ${a.id}`;
+      const stEl = document.getElementById("detailState");
+      stEl.textContent = st === "working" ? "● Sedang Bekerja" : st === "done" ? "✓ Selesai" : "○ Siaga";
+      stEl.className = "text-xs font-semibold " + (st === "working" ? "text-[var(--warning)]" : st === "done" ? "text-[var(--success)]" : "text-[var(--muted-foreground)]");
+      document.getElementById("detailName").textContent = a.name;
+      document.getElementById("detailDesc").textContent = a.role;
+      document.getElementById("detailTask").textContent = st === "working" ? a.activeMsg : st === "done" ? "Tugas shift selesai & lolos cek." : a.idleMsg;
+
+      const dirs = (liveState.directives && liveState.directives[a.key]) || [];
+      const ul = document.getElementById("detailDirectives");
+      if (dirs.length) {
+        ul.innerHTML = dirs.slice(0, 3).map(d => `<li>${d}</li>`).join("");
+      } else {
+        ul.innerHTML = `<li>Belum ada catatan revisi — aktif otomatis setelah Audit Minggu 20:00 WIB.</li>`;
+      }
+    }
+
+    function renderFeed() {
+      const feed = document.getElementById("recentFeed");
+      const items = (liveState.history || []).slice(-3).reverse();
+      if (!items.length) {
+        feed.innerHTML = `<div class="text-[var(--muted-foreground)]">Belum ada riwayat video.</div>`;
+        return;
+      }
+      feed.innerHTML = items.map(v => `
+        <div class="p-2.5 rounded-lg bg-[var(--background)] border border-[var(--border)] space-y-1">
+          <div class="font-semibold leading-snug">${v.title || v.episode_id}</div>
+          <div class="flex items-center justify-between text-[var(--muted-foreground)]">
+            <span>${(v.discipline || "sains").toUpperCase()} • QA ${v.qa_score ?? "-"}/10</span>
+            ${v.youtube_url ? `<a href="${v.youtube_url}" target="_blank" class="text-[var(--link)] underline font-semibold">Tonton ↗</a>` : ""}
+          </div>
+        </div>
+      `).join("");
+    }
+
+    async function fetchGitHubLive() {
+      const stEl = document.getElementById("ghSyncStatus");
+      stEl.textContent = "Menyinkronkan...";
+      try {
+        const [runsRes, histRes, dirRes] = await Promise.all([
+          fetch(`https://api.github.com/repos/${REPO}/actions/runs?per_page=3`),
+          fetch(`https://raw.githubusercontent.com/${REPO}/main/data/published_history.json?t=${Date.now()}`),
+          fetch(`https://raw.githubusercontent.com/${REPO}/main/data/weekly_agent_directives.json?t=${Date.now()}`)
+        ]);
+        if (runsRes.ok) {
+          const runsData = await runsRes.json();
+          const latest = (runsData.workflow_runs || [])[0];
+          if (latest) {
+            liveState.running = latest.status === "in_progress" || latest.status === "queued";
+            liveState.lastConclusion = latest.conclusion || latest.status;
+            liveState.lastRunTime = latest.updated_at;
+          }
+        }
+        if (histRes.ok) {
+          liveState.history = await histRes.json();
+        }
+        if (dirRes.ok) {
+          liveState.directives = await dirRes.json();
+        }
+        stEl.textContent = liveState.running ? "Live: Sedang Produksi!" : "Live Tersinkron";
+        document.getElementById("officeBanner").textContent = simMode
+          ? "Mode: Simulasi Shift Malam (Animasi 2D)"
+          : (liveState.running ? "LIVE: Para Agent Sedang Bekerja di GitHub!" : "LIVE: Kantor Siaga (Shift berikutnya 18:25 WIB)");
+      } catch (e) {
+        stEl.textContent = "Mode Offline / Preview";
+      }
+      renderFeed();
+      updateInspector();
+      renderStageStrip();
+    }
+
+    function drawRoundedRect(x, y, w, h, r, fill, stroke, lw = 2) {
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, r);
+      if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+      if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); }
+    }
+
+    function drawOffice(ts) {
+      const p = getThemePalette();
+      const t = ts / 1000;
+      const W = canvas.width, H = canvas.height;
+
+      // Floor & subtle 2D grid
+      ctx.fillStyle = p.floor;
+      ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = p.grid;
+      ctx.lineWidth = 1;
+      for (let gx = 0; gx < W; gx += 40) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke(); }
+      for (let gy = 0; gy < H; gy += 40) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke(); }
+
+      // Top wall + Science Whiteboard
+      ctx.fillStyle = p.wall;
+      ctx.fillRect(0, 0, W, 38);
+      drawRoundedRect(180, 6, 260, 26, 6, "#ffffff", "#0f172a", 2);
+      ctx.fillStyle = "#0f172a";
+      ctx.font = "bold 12px monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("BILLEXPLAINS LAB • TECH | ENG | ENERGY", 310, 23);
+
+      // Chief Auditor Glass Office (Agent 8)
+      drawRoundedRect(595, 48, 225, 172, 12, p.chiefFloor, p.glassBorder, 2.5);
+      ctx.fillStyle = p.glass;
+      ctx.fillRect(597, 50, 221, 168);
+      ctx.fillStyle = p.glassBorder;
+      ctx.font = "bold 11px sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText("RUANG AUDITOR TERTINGGI (MINGGU 20:00)", 606, 66);
+
+      // Workflow connecting arrows on floor
+      const links = [[1,2],[2,3],[3,6],[6,4],[4,5],[5,7],[7,8]];
+      links.forEach(([aId, bId], idx) => {
+        const a = AGENTS.find(x => x.id === aId);
+        const b = AGENTS.find(x => x.id === bId);
+        ctx.strokeStyle = p.muted;
+        ctx.globalAlpha = 0.28;
+        ctx.lineWidth = 3;
+        ctx.setLineDash([6, 6]);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y + 38);
+        ctx.lineTo(b.x, b.y + 38);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+
+        // Animated data packet traveling along active link
+        if (simMode && idx === simStep - 1) {
+          const u = (t * 1.4) % 1;
+          const px = a.x + (b.x - a.x) * u;
+          const py = (a.y + 38) + (b.y - a.y) * u;
+          ctx.beginPath();
+          ctx.arc(px, py, 7, 0, Math.PI * 2);
+          ctx.fillStyle = "#facc15";
+          ctx.fill();
+          ctx.strokeStyle = "#0f172a";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      });
+
+      // Decorative 2D potted plants
+      [[30, 62], [30, 455], [810, 455]].forEach(([px, py]) => {
+        drawRoundedRect(px - 10, py, 20, 18, 4, "#b45309", "#0f172a", 2);
+        ctx.beginPath();
+        ctx.arc(px, py - 6, 13, 0, Math.PI * 2);
+        ctx.fillStyle = "#16a34a";
+        ctx.fill();
+        ctx.strokeStyle = "#0f172a";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+
+      // Draw each 2D Agent + Desk + Monitor + Status Bubble
+      AGENTS.forEach((a, i) => {
+        const st = getAgentStatus(a);
+        const isWorking = st === "working";
+        const isDone = st === "done";
+        const isSel = a.id === selectedId;
+        const bob = isWorking ? Math.sin(t * 9 + i) * 3 : Math.sin(t * 2 + i) * 1;
+
+        // Selection highlight ring on floor
+        if (isSel) {
+          ctx.beginPath();
+          ctx.ellipse(a.x, a.y + 52, 66, 24, 0, 0, Math.PI * 2);
+          ctx.strokeStyle = "#38bdf8";
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+
+        // 2D Character behind desk
+        // Body (lab coat / shirt)
+        drawRoundedRect(a.x - 18, a.y - 6 + bob, 36, 30, 8, a.shirt, "#0f172a", 2);
+        // Head
+        ctx.beginPath();
+        ctx.arc(a.x, a.y - 20 + bob, 16, 0, Math.PI * 2);
+        ctx.fillStyle = "#fde68a";
+        ctx.fill();
+        ctx.strokeStyle = "#0f172a";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // Hair cap
+        ctx.beginPath();
+        ctx.arc(a.x, a.y - 24 + bob, 16, Math.PI, 0);
+        ctx.fillStyle = a.hair;
+        ctx.fill();
+        // Eyes
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(a.x - 6, a.y - 21 + bob, 3, 3);
+        ctx.fillRect(a.x + 3, a.y - 21 + bob, 3, 3);
+        // Typing hands animation
+        const handY = a.y + 18 + (isWorking ? Math.sin(t * 18 + i) * 3 : 0);
+        ctx.beginPath(); ctx.arc(a.x - 16, handY, 5, 0, Math.PI * 2); ctx.fillStyle = "#fde68a"; ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(a.x + 16, handY, 5, 0, Math.PI * 2); ctx.fillStyle = "#fde68a"; ctx.fill(); ctx.stroke();
+
+        // 2D Desk
+        drawRoundedRect(a.x - 58, a.y + 18, 116, 44, 8, p.deskTop, "#0f172a", 2.5);
+        drawRoundedRect(a.x - 54, a.y + 54, 108, 10, 4, p.desk, "#0f172a", 2);
+
+        // Computer Monitor on desk
+        drawRoundedRect(a.x - 24, a.y + 2, 48, 28, 4, p.monitor, "#0f172a", 2);
+        drawRoundedRect(a.x - 20, a.y + 6, 40, 20, 2, isWorking ? p.screenActive : p.screenIdle, null);
+        if (isWorking) {
+          // Animated code/chart lines on monitor
+          ctx.fillStyle = "#ffffff";
+          const barW = 10 + Math.abs(Math.sin(t * 6 + i)) * 20;
+          ctx.fillRect(a.x - 16, a.y + 10, barW, 3);
+          ctx.fillRect(a.x - 16, a.y + 16, 26 - barW * 0.4, 3);
+        }
+
+        // Desk status lamp
+        ctx.beginPath();
+        ctx.arc(a.x + 42, a.y + 30, 6, 0, Math.PI * 2);
+        ctx.fillStyle = isWorking ? "#f59e0b" : isDone ? "#22c55e" : "#64748b";
+        ctx.fill();
+        ctx.strokeStyle = "#0f172a";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Desk nameplate
+        drawRoundedRect(a.x - 46, a.y + 41, 92, 17, 5, "#0f172a", null);
+        ctx.fillStyle = "#facc15";
+        ctx.font = "bold 10px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(`A${a.id} • ${a.deskLabel}`, a.x, a.y + 53);
+
+        // Floating speech bubble when working
+        if (isWorking) {
+          const msg = a.activeMsg;
+          ctx.font = "bold 11px sans-serif";
+          const bw = Math.max(120, ctx.measureText(msg).width + 18);
+          const bx = Math.max(8, Math.min(W - bw - 8, a.x - bw / 2));
+          const by = a.y - 68 + Math.sin(t * 5) * 2;
+          drawRoundedRect(bx, by, bw, 24, 8, p.bubbleBg, p.bubbleBorder, 2);
+          ctx.fillStyle = p.text;
+          ctx.textAlign = "center";
+          ctx.fillText(msg, bx + bw / 2, by + 16);
+        }
+      });
+
+      // Advance simulation step smoothly
+      if (simMode) {
+        simTimer += 1 / 60;
+        if (simTimer >= 2.2) {
+          simTimer = 0;
+          simStep = (simStep + 1) % PIPELINE_ORDER.length;
+          selectedId = PIPELINE_ORDER[simStep];
+          updateInspector();
+          renderStageStrip();
+        }
+      }
+
+      requestAnimationFrame(drawOffice);
+    }
+
+    canvas.addEventListener("click", (ev) => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = (ev.clientX - rect.left) * (canvas.width / rect.width);
+      const my = (ev.clientY - rect.top) * (canvas.height / rect.height);
+      for (const a of AGENTS) {
+        if (Math.abs(mx - a.x) < 62 && Math.abs(my - (a.y + 18)) < 55) {
+          selectAgent(a.id);
+          break;
+        }
+      }
+    });
+
+    document.getElementById("btnSim").addEventListener("click", () => {
+      simMode = !simMode;
+      simStep = 0;
+      simTimer = 0;
+      document.getElementById("btnSim").textContent = simMode ? "⏹ Hentikan Simulasi" : "▶ Simulasi Shift Malam";
+      document.getElementById("officeBanner").textContent = simMode
+        ? "Mode: Simulasi Shift Malam (Animasi 2D 8 Agent)"
+        : "LIVE: Kantor Siaga (Shift berikutnya 18:25 WIB)";
+      if (simMode) selectAgent(PIPELINE_ORDER[0]);
+      renderStageStrip();
+      updateInspector();
+    });
+
+    document.getElementById("btnRefresh").addEventListener("click", fetchGitHubLive);
+    window.addEventListener("themechange", () => {});
+
+    updateClock();
+    setInterval(updateClock, 1000);
+    renderStageStrip();
+    updateInspector();
+    renderFeed();
+    fetchGitHubLive();
+    setInterval(fetchGitHubLive, 60000);
+    requestAnimationFrame(drawOffice);
+  </script>
+</body>
+</html>

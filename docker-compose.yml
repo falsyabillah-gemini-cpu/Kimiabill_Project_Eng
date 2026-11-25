@@ -1,0 +1,13 @@
+services:
+  scitech-studio-auto:
+    build: .
+    container_name: scitech_eng_studio_auto
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./assets:/app/assets
+      - ./episodes:/app/episodes
+    entrypoint: ["python", "-m", "src.scheduler"]

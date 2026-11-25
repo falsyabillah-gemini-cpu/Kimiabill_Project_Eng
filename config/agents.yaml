@@ -1,0 +1,63 @@
+# 8-Agent Model Routing Configuration
+# Default mode: "production" with provider "auto" — detects available API keys from .env / Secrets:
+#   1. GEMINI_API_KEY     -> gemini_api (gemini-4-hydrogen -> auto-fallback to gemini-3.8-flash)
+#   2. ANTHROPIC_API_KEY  -> anthropic_api (claude-sonnet-4-5)
+#   3. OPENROUTER_API_KEY -> openrouter (google/gemini-3.8-flash)
+
+runtime_mode: "production"
+
+agents:
+  agent_1_ideation:
+    role: "Viral Everyday Sci-Tech Trend Scout & Ideation"
+    provider: "auto"
+    recommended_prod_provider: "gemini_api"
+    recommended_prod_model: "gemini-3.8-flash"
+
+  agent_2_editorial_auditor:
+    role: "Global Shorts Hook & Editorial Auditor"
+    provider: "auto"
+    recommended_prod_provider: "gemini_api"
+    recommended_prod_model: "gemini-4-hydrogen"
+
+  agent_3_script_reviser:
+    role: "English Script, Shot-List & Mechanistic Storyboard Reviser"
+    provider: "auto"
+    recommended_prod_provider: "gemini_api"
+    recommended_prod_model: "gemini-4-hydrogen"
+
+  agent_6_asset_scout:
+    role: "Real Tech/Science Footage & SFX Scout"
+    provider: "auto"
+    recommended_prod_provider: "gemini_api"
+    recommended_prod_model: "gemini-3.5-flash-lite"
+    footage_sources:
+      - "pexels"
+      - "pixabay"
+      - "wikimedia"
+      - "nasa"
+
+  agent_4_video_executor:
+    role: "Video Director, Mechanistic Animator & FFmpeg Renderer"
+    provider: "auto"
+    recommended_prod_provider: "gemini_api"
+    recommended_prod_model: "gemini-4-hydrogen"
+
+  agent_5_video_qa:
+    role: "Multimodal Video QA Auditor"
+    provider: "auto"
+    recommended_prod_provider: "gemini_api"
+    recommended_prod_model: "gemini-4-hydrogen"
+
+  agent_7_publisher:
+    role: "Packaging (Thumbnail + Global SEO Caption) & Multi-Platform Social Publisher"
+    provider: "auto"
+    recommended_prod_provider: "gemini_api"
+    recommended_prod_model: "gemini-3.8-flash"
+    platforms:
+      - "youtube_shorts"
+
+  agent_8_growth_auditor:
+    role: "Chief Weekly Auditor: International Engagement, Workflow Efficiency & Token Optimization (Sunday 21:30 WIB)"
+    provider: "auto"
+    recommended_prod_provider: "gemini_api"
+    recommended_prod_model: "gemini-4-hydrogen"
