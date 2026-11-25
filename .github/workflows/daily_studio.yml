@@ -3,12 +3,14 @@ name: Daily Auto-Video (Everyday Sci-Tech)
 on:
   schedule:
     # 2 videos/day timed for global prime-time (US/EU peak) & offset from Kimiabill to avoid API rate limits:
-    # Slot 1 (04:00 WIB = 16:00 EST): primary 19:13 UTC + watchdog 20:39 UTC
+    # Slot 1 (04:00 WIB = 16:00 EST): primary 02:13 WIB (19:13 UTC), watchdog 03:11 WIB (20:11 UTC), post-window rescue 04:21 WIB (21:21 UTC)
     - cron: "13 19 * * *"
-    - cron: "39 20 * * *"
-    # Slot 2 (21:00 WIB = 09:00 EST / 14:00 UTC): primary 12:23 UTC + watchdog 13:39 UTC
+    - cron: "11 20 * * *"
+    - cron: "21 21 * * *"
+    # Slot 2 (21:00 WIB = 09:00 EST / 14:00 UTC): primary 19:23 WIB (12:23 UTC), watchdog 20:11 WIB (13:11 UTC), post-window rescue 21:21 WIB (14:21 UTC)
     - cron: "23 12 * * *"
-    - cron: "39 13 * * *"
+    - cron: "11 13 * * *"
+    - cron: "21 14 * * *"
   repository_dispatch:
     types: [telegram_feedback, telegram_rerender]
   workflow_dispatch:
@@ -45,6 +47,7 @@ permissions:
 jobs:
   produce-video:
     runs-on: ubuntu-latest
+    timeout-minutes: 270
     outputs:
       skip_duplicate: ${{ steps.guard.outputs.skip }}
     steps:
@@ -184,7 +187,7 @@ jobs:
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID || vars.ELEVENLABS_VOICE_ID }}
           ELEVENLABS_MODEL_ID: ${{ vars.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2' }}
           PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'public' }}
-          TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || ((github.event.schedule == '13 19 * * *' || github.event.schedule == '39 20 * * *') && '04:00' || ((github.event.schedule == '23 12 * * *' || github.event.schedule == '39 13 * * *') && '21:00' || '')) }}
+          TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || ((github.event.schedule == '13 19 * * *' || github.event.schedule == '11 20 * * *' || github.event.schedule == '21 21 * * *') && '04:00' || ((github.event.schedule == '23 12 * * *' || github.event.schedule == '11 13 * * *' || github.event.schedule == '21 14 * * *') && '21:00' || '')) }}
           SKIP_IF_SLOT_PUBLISHED: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
