@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -1123,44 +1124,97 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
 
     brand_name = get_brand_name()
     gdrive_root = get_gdrive_root()
-    audit = call_structured_agent(
-        provider=a8_cfg.get("provider", "auto"),
-        model=a8_cfg.get("model", a8_cfg.get("recommended_prod_model", "gemini-3.8-flash")),
-        system_prompt=(
-            f"You are Agent 8 (Chief Weekly System, Engagement & Workflow Efficiency Auditor) for {brand_name}, an international "
-            "English-language Everyday Science & Applied Technology YouTube Shorts studio (gadgets, engineering, materials, energy, biotech). "
-            "Perform FIVE deep audits in clear English from this week's data:\n"
-            "1. SOCIAL MEDIA ENGAGEMENT & MONETIZATION AUDIT: Analyze views, likes, comments, retention %, avg view duration, "
-            "QA scores, hooks, topics, and durations. State clearly in `summary` progress toward YPP Shorts monetization.\n"
-            "2. WORKFLOW & TOKEN EFFICIENCY AUDIT: Analyze production_seconds, revisions_used, and topic_attempts_used "
-            "to spot wasted Gemini/ElevenLabs tokens or slow footage queries.\n"
-            "3. AUDIENCE COMMENT & CONTENT REQUEST EXTRACTION: Read `viewer_comments` carefully! Extract up to 5 valid "
-            "everyday sci-tech 'how/why' topic requests into `audience_requests` (preserving `requester_name`, `source_comment`, "
-            "`source_video_id`, `source_comment_id`, crisp English `topic_title`, and `discipline`). Never duplicate `existing_requests_queue`.\n"
-            "4. GLOBAL AUDIENCE GEOGRAPHY: Evaluate `countries_summary` (US, UK, CA, AU, EU, global share) and `cumulative_milestone_stats` "
-            "(EVERYDAY_TECH vs TECH_RADAR) in `audience_geo_insights`.\n"
-            "5. TOPIC PERFORMANCE DIAGNOSIS: Inspect `topic_landscape` across all 5 pillars. Populate `topic_performance_highlights` (3-5 crisp "
-            "findings naming top vs bottom topics and why). Leave `next_week_topic_map` as `[]` — Agent 1 drafts it next.\n"
-            "Also populate `recommended_weekend_hours_wib` with 2 optimal HH:MM WIB upload times (one around 03:00-06:00 WIB and one around 20:00-23:00 WIB) "
-            "and populate `tech_radar_weekend_directives` with 2-3 everyday-relatable sci-tech breakthrough angles for Weekend TECH_RADAR."
-        ),
-        user_payload={
-            "week_ending": today_wib,
-            "studio_target_duration": "38-48s (EVERYDAY_TECH) & 45-55s (TECH_RADAR), 5-6 tight scenes + 3-6 word zero-spoiler title",
-            "channel_stats": webhook_stats.get("channel", {}),
-            "ypp_targets": {"tier1_subs": 500, "tier1_shorts_views_90d": 3000000, "full_subs": 1000, "full_shorts_views_90d": 10000000},
-            "recent_videos": enriched,
-            "topic_landscape": topic_landscape_brief,
-            "countries_summary": countries_summary,
-            "cumulative_milestone_stats": milestone_stats,
-            "viewer_comments": viewer_comments[:60],
-            "existing_requests_queue": existing_requests[-25:],
-            "previous_week_directives": prev_directives,
-            "owner_telegram_directives": __import__("src.tools.telegram_notify", fromlist=["get_agent_specific_owner_directives"]).get_agent_specific_owner_directives("agent_8"),
-        },
-        response_model=Agent8WeeklyAuditOutput,
-        handoff_path=AUDITS_DIR / f"agent8_audit_{today_wib}.json",
-    )
+    audit: Optional[Agent8WeeklyAuditOutput] = None
+    last_a8_err = ""
+    for a8_try in range(1, 3):
+        try:
+            audit = call_structured_agent(
+                provider=a8_cfg.get("provider", "auto"),
+                model=a8_cfg.get("model", a8_cfg.get("recommended_prod_model", "gemini-3.8-flash")),
+                system_prompt=(
+                    f"You are Agent 8 (Chief Weekly System, Engagement & Workflow Efficiency Auditor) for {brand_name}, an international "
+                    "English-language Everyday Science & Applied Technology YouTube Shorts studio (gadgets, engineering, materials, energy, biotech). "
+                    "Perform FIVE deep audits in clear English from this week's data:\n"
+                    "1. SOCIAL MEDIA ENGAGEMENT & MONETIZATION AUDIT: Analyze views, likes, comments, retention %, avg view duration, "
+                    "QA scores, hooks, topics, and durations. State clearly in `summary` progress toward YPP Shorts monetization.\n"
+                    "2. WORKFLOW & TOKEN EFFICIENCY AUDIT: Analyze production_seconds, revisions_used, and topic_attempts_used "
+                    "to spot wasted Gemini/ElevenLabs tokens or slow footage queries.\n"
+                    "3. AUDIENCE COMMENT & CONTENT REQUEST EXTRACTION: Read `viewer_comments` carefully! Extract up to 5 valid "
+                    "everyday sci-tech 'how/why' topic requests into `audience_requests` (preserving `requester_name`, `source_comment`, "
+                    "`source_video_id`, `source_comment_id`, crisp English `topic_title`, and `discipline`). Never duplicate `existing_requests_queue`.\n"
+                    "4. GLOBAL AUDIENCE GEOGRAPHY: Evaluate `countries_summary` (US, UK, CA, AU, EU, global share) and `cumulative_milestone_stats` "
+                    "(EVERYDAY_TECH vs TECH_RADAR) in `audience_geo_insights`.\n"
+                    "5. TOPIC PERFORMANCE DIAGNOSIS: Inspect `topic_landscape` across all 5 pillars. Populate `topic_performance_highlights` (3-5 crisp "
+                    "findings naming top vs bottom topics and why). Leave `next_week_topic_map` as `[]` — Agent 1 drafts it next.\n"
+                    "Also populate `recommended_weekend_hours_wib` with 2 optimal HH:MM WIB upload times (one around 03:00-06:00 WIB and one around 20:00-23:00 WIB) "
+                    "and populate `tech_radar_weekend_directives` with 2-3 everyday-relatable sci-tech breakthrough angles for Weekend TECH_RADAR."
+                ),
+                user_payload={
+                    "week_ending": today_wib,
+                    "studio_target_duration": "38-48s (EVERYDAY_TECH) & 45-55s (TECH_RADAR), 5-6 tight scenes + 3-6 word zero-spoiler title",
+                    "channel_stats": webhook_stats.get("channel", {}),
+                    "ypp_targets": {"tier1_subs": 500, "tier1_shorts_views_90d": 3000000, "full_subs": 1000, "full_shorts_views_90d": 10000000},
+                    "recent_videos": enriched,
+                    "topic_landscape": topic_landscape_brief,
+                    "countries_summary": countries_summary,
+                    "cumulative_milestone_stats": milestone_stats,
+                    "viewer_comments": viewer_comments[:60],
+                    "existing_requests_queue": existing_requests[-25:],
+                    "previous_week_directives": prev_directives,
+                    "owner_telegram_directives": __import__("src.tools.telegram_notify", fromlist=["get_agent_specific_owner_directives"]).get_agent_specific_owner_directives("agent_8"),
+                },
+                response_model=Agent8WeeklyAuditOutput,
+                handoff_path=AUDITS_DIR / f"agent8_audit_{today_wib}.json",
+            )
+            break
+        except Exception as exc:
+            last_a8_err = str(exc) or exc.__class__.__name__
+            print(f"[agent8] LLM audit attempt {a8_try}/2 failed ({last_a8_err[:180]})")
+            if a8_try < 2:
+                time.sleep(45)
+
+    if audit is None:
+        ch_fb = webhook_stats.get("channel", {})
+        top_vids = topic_landscape.get("top_videos") or []
+        bot_vids = topic_landscape.get("bottom_videos") or []
+        top_line = ", ".join(f"'{v.get('title')}' ({v.get('views', 0)} views)" for v in top_vids[:3]) or "Collecting baseline Shorts telemetry"
+        bot_line = ", ".join(f"'{v.get('title')}' ({v.get('views', 0)} views)" for v in bot_vids[:2]) or "N/A"
+        audit = Agent8WeeklyAuditOutput(
+            week_ending=today_wib,
+            summary=(
+                f"{brand_name} weekly telemetry audit ({len(enriched)} videos checked; "
+                f"{ch_fb.get('subscribers', 0)} subscribers, {ch_fb.get('total_views', 0)} total views). "
+                f"[Fallback 0-token analytics summary — Gemini LLM temporarily rate-limited: {last_a8_err[:90]}]"
+            ),
+            top_performing_patterns=[
+                f"Top performing Shorts so far: {top_line}",
+                "Tight 38-48s everyday tech curiosity scripts with zero-spoiler 3-6 word titles",
+            ],
+            bottlenecks_and_weaknesses=[
+                f"Lower-view baseline videos: {bot_line}",
+                "Gemini API RPM/RPD saturation during peak audit window — retry/fallback kept delivery intact",
+            ],
+            topic_performance_highlights=[
+                f"Top topics: {top_line}",
+                f"Pillar coverage tracked across {len(topic_landscape.get('discipline_breakdown') or [])} everyday sci-tech pillars",
+            ],
+            flow_clip_prompts=_build_default_flow_starter_prompts([], count=5),
+            agent_1_directives=["Prioritize underrepresented everyday sci-tech pillars and avoid duplicate titles."],
+            agent_2_directives=["Keep 3-6 word zero-spoiler hooks anchored in recognizable daily-life objects."],
+            agent_3_directives=["Maintain 38-48s brisk pacing on weekdays and 45-55s TECH_RADAR depth on weekends."],
+            agent_5_directives=["Reject off-topic B-roll early and verify clean legible subtitles."],
+            agent_6_directives=["Prefer sharp macro tech/lab clips and mechanistic circuit overlays."],
+            workflow_efficiency_summary="Generated via 0-token deterministic telemetry fallback after Gemini rate-limit.",
+            token_and_cost_optimizations=["Keep cron offsets staggered from sibling channel to preserve Gemini quota."],
+            next_week_experiments=["Test faster 1.5s physical hook opening vs question hook on weekday slots."],
+            recommended_weekend_hours_wib=["04:00", "21:00"],
+            tech_radar_weekend_directives=[
+                "Solid-state battery safety & charging breakthroughs",
+                "Next-gen micro-LED & silicon photonics chips",
+            ],
+            audience_geo_insights=f"Top countries summary: {countries_summary.get('top_countries', []) or 'Pending Analytics threshold'}",
+        )
+        print("[agent8] Built 0-token fallback audit from live YouTube stats & telemetry.")
 
     queued_new = queue_audience_requests(audit.audience_requests, today_wib)
     if queued_new:

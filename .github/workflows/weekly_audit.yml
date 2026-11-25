@@ -2,8 +2,9 @@ name: Weekly Social Media Audit (Agent 8)
 
 on:
   schedule:
-    # Every Sunday at 21:30 WIB (14:30 UTC) — 30m after Sunday's 21:00 WIB video and 90m after Kimiabill's audit
+    # Every Sunday at 21:30 WIB (14:30 UTC) + watchdog at 22:15 WIB (15:15 UTC)
     - cron: "30 14 * * 0"
+    - cron: "15 15 * * 0"
   workflow_dispatch:
     inputs:
       mode:
@@ -25,16 +26,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Guard Against Duplicate Weekly Schedule Run
+        id: guard
+        run: |
+          SKIP="false"
+          TODAY_WIB=$(TZ=Asia/Jakarta date +%Y-%m-%d)
+          if [ "${{ github.event_name }}" = "schedule" ] && [ -f "data/weekly_audits/WEEKLY_AUDIT_${TODAY_WIB}.pdf" ]; then
+            echo "Weekly audit PDF for ${TODAY_WIB} already exists — skipping watchdog."
+            SKIP="true"
+          fi
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+
       - name: Setup Python 3.12
+        if: ${{ steps.guard.outputs.skip != 'true' }}
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install Dependencies
+        if: ${{ steps.guard.outputs.skip != 'true' }}
         run: |
           pip install -r requirements.txt
 
       - name: Run Agent 8 Weekly Audit or Send Google AI Flow Prompts
+        if: ${{ steps.guard.outputs.skip != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -59,6 +74,7 @@ jobs:
           fi
 
       - name: Commit Updated Cross-Agent Directives
+        if: ${{ steps.guard.outputs.skip != 'true' }}
         run: |
           git config user.name "Everyday SciTech Studio Bot"
           git config user.email "bot@studio.local"
