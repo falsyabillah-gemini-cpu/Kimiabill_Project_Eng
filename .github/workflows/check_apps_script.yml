@@ -23,6 +23,7 @@ jobs:
           GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
           YOUTUBE_WEBHOOK_URL: ${{ secrets.YOUTUBE_WEBHOOK_URL }}
           YOUTUBE_WEBHOOK_TOKEN: ${{ secrets.YOUTUBE_WEBHOOK_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
           python - <<'PY'
           import json
@@ -49,6 +50,13 @@ jobs:
               g_yt = requests.get(yt_url, timeout=30)
               print("1b. YouTube GET status:", g_yt.status_code, "body:", g_yt.text[:300])
 
+          p_drive = requests.post(
+              drive_url,
+              json={"action": "list_flow_clips", "token": drive_token},
+              timeout=45,
+          ).json()
+          print("1c. Pro Drive Flow_Clip_Bank ok:", p_drive.get("ok"), "clips:", len(p_drive.get("clips") or []))
+
           p_yt = requests.post(
               yt_url,
               json={"action": "get_youtube_stats", "token": yt_token, "max_results": 2},
@@ -72,7 +80,20 @@ jobs:
           th_deployed = "Unknown action" not in str(p_th.get("error", ""))
           print("3. post_comment handler:", cmt_deployed, "4. set_thumbnail handler:", th_deployed)
 
-          if not p_yt.get("ok") or not cmt_deployed or not th_deployed:
+          tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+          if tg_token:
+              wh = requests.get(f"https://api.telegram.org/bot{tg_token}/getWebhookInfo", timeout=15).json()
+              res = wh.get("result") or {}
+              print("5. Telegram getWebhookInfo:", json.dumps({
+                  "ok": wh.get("ok"),
+                  "has_webhook_url": bool(res.get("url")),
+                  "pending_update_count": res.get("pending_update_count"),
+                  "last_error_message": res.get("last_error_message") or None,
+              }))
+          else:
+              print("5. Telegram getWebhookInfo: TELEGRAM_BOT_TOKEN secret is empty!")
+
+          if not p_drive.get("ok") or not p_yt.get("ok") or not cmt_deployed or not th_deployed:
               sys.exit(1)
           print("ALL APPS SCRIPT CHECKS PASSED!")
           PY
