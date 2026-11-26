@@ -1344,25 +1344,47 @@ def scout_assets_for_scenes(
             if final_info:
                 final_cand = cand
 
-        # Escalate failed Tier 1 -> Tier 2 Portrait Photo + Ken Burns
+        # Escalate failed Tier 1 -> Tier 2 Portrait Photo + Ken Burns (with relevance sort & quick vision guard)
         if final_cand is None:
             topic_terms = _extract_scene_topic_terms(scene)
             fb_q = (scene.fallback_queries[0] if scene.fallback_queries else scene.visual_query)
             if idx in selected and not selected[idx][3]:  # previously tried video, now try portrait photo
-                t2_list = _gather_tier2_photo_candidates(scene.visual_query) or _gather_tier2_photo_candidates(fb_q)
-                t2_list = [c for c in t2_list if _metadata_relevance_score(c, scene, topic_terms) >= 0 and c.download_url not in used_urls]
-                for t2c in t2_list[:2]:
+                raw_t2 = _gather_tier2_photo_candidates(scene.visual_query) or _gather_tier2_photo_candidates(fb_q)
+                scored_t2 = [
+                    (_metadata_relevance_score(c, scene, topic_terms), c)
+                    for c in raw_t2
+                    if c.download_url not in used_urls
+                ]
+                scored_t2 = [(ms, c) for ms, c in scored_t2 if ms >= 0]
+                scored_t2.sort(key=lambda pr: (-pr[0], 0 if pr[1].source == "unsplash" else 1))
+                for ms, t2c in scored_t2[:3]:
                     img_p = tmp_dir / f"{scene.scene_id}_esc_t2.jpg"
                     used_urls.add(t2c.download_url)
-                    if _download_raw_clip(t2c, img_p):
-                        if t2c.source == "unsplash":
-                            _trigger_unsplash_download(t2c)
-                        k_info = _render_image_to_ken_burns_mp4(img_p, dest_mp4, duration_sec=8.0, motion=scene.motion)
-                        img_p.unlink(missing_ok=True)
-                        if k_info:
-                            final_cand, final_info = t2c, k_info
-                            print(f"[asset_scout] {scene.scene_id}: escalated cleanly to Tier 2 Photo + Ken Burns ({t2c.source})")
-                            break
+                    if not _download_raw_clip(t2c, img_p):
+                        continue
+                    # Quick 1-tile vision guard if screening enabled so off-topic stock photos escalate cleanly to Tier 3
+                    tile_esc = tmp_dir / f"{scene.scene_id}_esc_tile.jpg"
+                    sheet_esc = tmp_dir / f"{scene.scene_id}_esc_sheet.jpg"
+                    if _extract_midframe_for_sheet(img_p, True, tile_esc) and _build_batch_contact_sheet([(f"shot_{idx + 1}", scene.visual_query, tile_esc)], sheet_esc):
+                        ev = _batch_vision_screen_sheet(sheet_esc, [{
+                            "shot_id": f"shot_{idx + 1}",
+                            "is_hook_shot": idx == 0,
+                            "visual_query": scene.visual_query,
+                            "scene_narration": scene.narration[:140],
+                            "candidate_title": t2c.title[:70],
+                        }]).get(f"shot_{idx + 1}")
+                        if ev and (not ev.family_safe or ev.has_watermark_or_text_slide or ev.is_off_topic_scene or ev.relevance_score < 5.8):
+                            print(f"[asset_scout] {scene.scene_id}: Tier 2 photo ({t2c.source}) failed vision guard (rel={ev.relevance_score}, off={ev.is_off_topic_scene}) -> trying next/Tier 3")
+                            img_p.unlink(missing_ok=True)
+                            continue
+                    if t2c.source == "unsplash":
+                        _trigger_unsplash_download(t2c)
+                    k_info = _render_image_to_ken_burns_mp4(img_p, dest_mp4, duration_sec=8.0, motion=scene.motion)
+                    img_p.unlink(missing_ok=True)
+                    if k_info:
+                        final_cand, final_info = t2c, k_info
+                        print(f"[asset_scout] {scene.scene_id}: escalated cleanly to Tier 2 Photo + Ken Burns ({t2c.source})")
+                        break
 
         # Final Escalation -> Tier 3 AI-Generated 9:16 Scene + Ken Burns (Zero Hard-Crash Policy!)
         if final_cand is None:
