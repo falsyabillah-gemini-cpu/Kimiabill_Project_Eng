@@ -15,5 +15,30 @@
     "production_seconds": 1750.0,
     "publish_mode": "public",
     "agent_models": {}
+  },
+  {
+    "episode_id": "ep_20261126_1333",
+    "published_at_wib": "2026-11-26T13:43:01+07:00",
+    "title": "How Teflon Sticks To Pans",
+    "discipline": "materials",
+    "section": "EVERYDAY_TECH",
+    "youtube_url": "https://youtube.com/shorts/8sQ6aojT4yE",
+    "gdrive_folder_url": "https://drive.google.com/drive/folders/1hQ4hOO7Y7w7io8a-BpBM7tXZIvwQgXtN",
+    "qa_score": 9.5,
+    "duration_sec": 43.057,
+    "hook_line": "If absolutely nothing sticks to Teflon, how on earth did engineers get it to stick to this pan?",
+    "revisions_used": 1,
+    "topic_attempts_used": 1,
+    "production_seconds": 530.4,
+    "publish_mode": "public",
+    "agent_models": {
+      "Agent 1 (Ideasi Topik)": "gemini-3.6-flash (fallback dari gemini-3.8-flash)",
+      "Agent 2 (Auditor Hook)": "gemini-3.5-flash (fallback dari gemini-3.8-flash)",
+      "Agent 3 (Skrip & Storyboard)": "gemini-3.5-flash (fallback dari gemini-3.8-flash)",
+      "Agent 6 (Screening Klip)": "gemini-3.5-flash-lite (17x)",
+      "Agent 5 (QA Video v1)": "gemini-3.6-flash (fallback dari gemini-3.8-flash)",
+      "Agent 5 (QA Video v2)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)",
+      "Agent 7 (Packaging & SEO)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)"
+    }
   }
 ]
