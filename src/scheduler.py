@@ -147,8 +147,8 @@ def run_one_automated_episode() -> None:
         pending_req = None
 
     run_t0 = time.monotonic()
-    max_recovery_rounds = max(1, int(os.environ.get("MAX_RECOVERY_ROUNDS", "4")))
-    max_wall_clock_sec = float(os.environ.get("MAX_PRODUCTION_WALL_SEC", str(230 * 60)))
+    max_recovery_rounds = max(1, int(os.environ.get("MAX_RECOVERY_ROUNDS", "2")))
+    max_wall_clock_sec = float(os.environ.get("MAX_PRODUCTION_WALL_SEC", str(120 * 60)))
     pub_mode_start = os.environ.get("PUBLISH_MODE", "public").strip().lower()
     target_pub_label = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip() or "langsung tayang"
     _tg_status(
@@ -160,6 +160,7 @@ def run_one_automated_episode() -> None:
 
     last_err = "Unknown error"
     total_attempts_done = 0
+    consecutive_quota_errors = 0
 
     for recovery_round in range(1, max_recovery_rounds + 1):
         for topic_attempt in range(1, max_topic_attempts + 1):
@@ -192,6 +193,7 @@ def run_one_automated_episode() -> None:
                     request_source_comment=use_req.get("source_comment") if use_req else None,
                     request_comment_id=use_req.get("source_comment_id") if use_req else None,
                 )
+                consecutive_quota_errors = 0
                 title = state.agent3.title if state.agent3 else "-"
                 print(f"[scheduler] Agents 1-3 complete: {title}")
                 _tg_status(
@@ -360,23 +362,40 @@ def run_one_automated_episode() -> None:
                         print("[scheduler] Skipping Google Drive upload (GDRIVE_WEBHOOK_URL missing and 'gdrive' CLI not installed).")
                 return
             except Exception as exc:
-                last_err = re.sub(r"([?&](?:key|token)=)[^&\s'\"]+", r"\1***", str(exc) or exc.__class__.__name__)
+                raw_msg = str(exc) or exc.__class__.__name__
+                last_err = re.sub(r"([?&](?:key|token)=)[^&\s'\"]+", r"\1***", raw_msg)
                 print(f"[scheduler] Attempt #{total_attempts_done} (round {recovery_round}.{topic_attempt}) failed: {last_err}")
                 traceback.print_exc()
                 if title and title != "-" and title not in avoid_titles:
                     avoid_titles.append(title)
-                _tg_status(
-                    f"⚠️ [{brand_name}] Percobaan #{total_attempts_done} gagal: {last_err[:160]}\n"
-                    f"Otomatis mengulang lagi sampai berhasil..."
-                )
+                is_quota_err = ("429" in last_err or "quota" in last_err.lower() or "503" in last_err)
+                if is_quota_err:
+                    consecutive_quota_errors += 1
+                    if consecutive_quota_errors >= 2:
+                        _tg_status(
+                            f"🛑 [{brand_name}] Kuota Gemini API habis (429/503 beruntun setelah jeda RPM).\n"
+                            f"Produksi dihentikan sementara agar kuota pulih pada jadwal berikutnya."
+                        )
+                        raise RuntimeError(f"Gemini API quota exhausted across consecutive attempts: {last_err}") from exc
+                    _tg_status(
+                        f"⏳ [{brand_name}] Percobaan #{total_attempts_done} kena limit Gemini (429). "
+                        f"Menunggu 75 detik agar kuota RPM pulih sebelum mencoba ulang 1x lagi..."
+                    )
+                    time.sleep(75)
+                else:
+                    consecutive_quota_errors = 0
+                    _tg_status(
+                        f"⚠️ [{brand_name}] Percobaan #{total_attempts_done} gagal: {last_err[:160]}\n"
+                        f"Otomatis mengulang dengan topik baru..."
+                    )
                 continue
 
         if recovery_round < max_recovery_rounds and (time.monotonic() - run_t0) < max_wall_clock_sec:
-            cooldown_s = min(300, 60 * recovery_round)
+            cooldown_s = min(180, 75 * recovery_round)
             print(f"[scheduler] Recovery round {recovery_round} exhausted; cooling down {cooldown_s}s before round {recovery_round + 1}...")
             _tg_status(
                 f"🔄 [{brand_name}] Ronde {recovery_round}/{max_recovery_rounds} gagal ({last_err[:140]}). "
-                f"Jeda {cooldown_s} detik lalu lanjut ronde {recovery_round + 1} sampai berhasil..."
+                f"Jeda {cooldown_s} detik lalu lanjut ronde {recovery_round + 1}..."
             )
             time.sleep(cooldown_s)
 

@@ -84,7 +84,7 @@ publishing:
   tracking_sheet_id: ""
 
 guardrails:
-  max_revisions: 4
+  max_revisions: 3
   max_topic_attempts: 3
   min_idea_score: 7.5
   min_qa_score: 8.0

@@ -442,7 +442,7 @@ function doPost(e) {
       });
     }
 
-    if (action === "download_file") {
+    if (action === "download_file" || action === "download_drive_file") {
       const fileId = String(payload.file_id || "").trim();
       if (!fileId) {
         return _jsonResponse({ ok: false, error: "file_id is required" });
@@ -487,12 +487,15 @@ function doPost(e) {
       }
       const vidId = String(payload.video_id || "").trim();
       const b64 = String(payload.image_base64 || "").trim();
-      if (!vidId || !b64) {
-        return _jsonResponse({ ok: false, error: "video_id & image_base64 are required" });
+      const thumbFid = String(payload.thumbnail_file_id || "").trim();
+      if (!vidId || (!b64 && !thumbFid)) {
+        return _jsonResponse({ ok: false, error: "video_id & image_base64 (or thumbnail_file_id) are required" });
       }
-      const thumbBlob = Utilities.newBlob(Utilities.base64Decode(b64), "image/jpeg", "cover.jpg");
+      const thumbBlob = b64
+        ? Utilities.newBlob(Utilities.base64Decode(b64), "image/jpeg", "cover.jpg")
+        : DriveApp.getFileById(thumbFid).getBlob();
       YouTube.Thumbnails.set(vidId, thumbBlob);
-      return _jsonResponse({ ok: true, video_id: vidId });
+      return _jsonResponse({ ok: true, thumbnail_set: true, video_id: vidId });
     }
 
     if (action === "get_youtube_stats") {

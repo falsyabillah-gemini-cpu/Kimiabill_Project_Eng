@@ -58,7 +58,7 @@ jobs:
         run: |
           SKIP="false"
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            ACTIVE=$(gh run list -R "${{ github.repository }}" --workflow daily_studio.yml --limit 10 --json databaseId,status --jq "[.[] | select((.status == \"in_progress\" or .status == \"queued\") and (.databaseId != ${{ github.run_id }}))] | length")
+            ACTIVE=$(gh run list -R "${{ github.repository }}" --workflow daily_studio.yml --limit 10 --json databaseId,status,displayTitle --jq "[.[] | select((.status == \"in_progress\" or .status == \"queued\") and (.databaseId != ${{ github.run_id }}) and (.displayTitle != \"telegram_feedback\"))] | length")
             if [ "${ACTIVE:-0}" -gt 0 ]; then
               echo "Another production run is already active — skipping duplicate watchdog run."
               SKIP="true"
@@ -100,7 +100,7 @@ jobs:
           git add data/owner_feedback.json 2>/dev/null || true
           if ! git diff --cached --quiet; then
             git commit -m "chore: compile owner Telegram feedback to Agents 1-8 & engine [skip ci]"
-            git pull --rebase origin main || true
+            git pull --rebase --autostash origin main || true
             git push
           fi
 

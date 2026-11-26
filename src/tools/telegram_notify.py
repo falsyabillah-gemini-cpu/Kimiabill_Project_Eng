@@ -489,6 +489,19 @@ def handle_telegram_dispatch_feedback(text: str, mode: str = "next_video") -> di
         send_telegram_message(f"🧹 {_brand_tag()} All extra owner rules reset to studio defaults (transition & animation SFX stay ON).")
         return {"ok": True, "action": "rules_cleared"}
 
+    is_question_only = (
+        mode == "next_video"
+        and "?" in clean
+        and any(low.startswith(q) for q in ("kenapa", "mengapa", "gimana", "bagaimana", "apakah", "bisakah", "kapan", "why ", "how ", "when ", "can you"))
+    )
+    if is_question_only:
+        send_telegram_message(
+            f"ℹ️ {_brand_tag()} Pesan ini terdeteksi sebagai pertanyaan status (tidak disimpan sebagai rule permanen).\n"
+            f"• Untuk render & upload video sekarang, kirim: `/rerender <catatan opsional>`\n"
+            f"• Untuk menambah rule produksi, tulis perintah tanpa tanda tanya (contoh: `Volume BGM lebih pelan`)."
+        )
+        return {"ok": True, "action": "question_ignored"}
+
     record_owner_feedback(clean, mode=mode, compile_agents=False)
     comp = compile_owner_feedback_state(use_llm=True)
     notes = comp.get("notes") or []

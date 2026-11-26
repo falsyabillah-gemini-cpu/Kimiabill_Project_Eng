@@ -418,20 +418,31 @@ def _upload_via_webhook(
             if thumbnail_file_id and not thumbnail_set and video_id_yt:
                 import time
 
+                thumb_b64_retry = ""
+                thumb_files = sorted(episode_dir.glob("THUMBNAIL_*.jpg"))
+                if thumb_files:
+                    try:
+                        thumb_b64_retry = base64.b64encode(thumb_files[0].read_bytes()).decode("ascii")
+                    except Exception:
+                        thumb_b64_retry = ""
+
                 for th_try in range(2):
                     time.sleep(12)
                     try:
+                        th_payload: dict[str, Any] = {
+                            "action": "set_thumbnail",
+                            "video_id": video_id_yt,
+                            "thumbnail_file_id": thumbnail_file_id,
+                        }
+                        if thumb_b64_retry:
+                            th_payload["image_base64"] = thumb_b64_retry
                         th_res = _post_webhook(
                             yt_webhook_url,
-                            {
-                                "action": "set_thumbnail",
-                                "video_id": video_id_yt,
-                                "thumbnail_file_id": thumbnail_file_id,
-                            },
+                            th_payload,
                             timeout=60,
                             token_override=yt_token,
                         )
-                        if th_res.get("thumbnail_set"):
+                        if th_res.get("thumbnail_set") or th_res.get("ok"):
                             thumbnail_set = True
                             thumbnail_error = ""
                             break

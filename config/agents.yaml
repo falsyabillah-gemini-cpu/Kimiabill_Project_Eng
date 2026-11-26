@@ -17,13 +17,13 @@ agents:
     role: "Global Shorts Hook & Editorial Auditor"
     provider: "auto"
     recommended_prod_provider: "gemini_api"
-    recommended_prod_model: "gemini-4-hydrogen"
+    recommended_prod_model: "gemini-3.8-flash"
 
   agent_3_script_reviser:
     role: "English Script, Shot-List & Mechanistic Storyboard Reviser"
     provider: "auto"
     recommended_prod_provider: "gemini_api"
-    recommended_prod_model: "gemini-4-hydrogen"
+    recommended_prod_model: "gemini-3.8-flash"
 
   agent_6_asset_scout:
     role: "Real Tech/Science Footage & SFX Scout"
@@ -40,13 +40,13 @@ agents:
     role: "Video Director, Mechanistic Animator & FFmpeg Renderer"
     provider: "auto"
     recommended_prod_provider: "gemini_api"
-    recommended_prod_model: "gemini-4-hydrogen"
+    recommended_prod_model: "gemini-3.8-flash"
 
   agent_5_video_qa:
     role: "Multimodal Video QA Auditor"
     provider: "auto"
     recommended_prod_provider: "gemini_api"
-    recommended_prod_model: "gemini-4-hydrogen"
+    recommended_prod_model: "gemini-3.8-flash"
 
   agent_7_publisher:
     role: "Packaging (Thumbnail + Global SEO Caption) & Multi-Platform Social Publisher"
@@ -60,4 +60,4 @@ agents:
     role: "Chief Weekly Auditor: International Engagement, Workflow Efficiency & Token Optimization (Sunday 21:30 WIB)"
     provider: "auto"
     recommended_prod_provider: "gemini_api"
-    recommended_prod_model: "gemini-4-hydrogen"
+    recommended_prod_model: "gemini-3.8-flash"

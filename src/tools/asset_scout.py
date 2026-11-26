@@ -448,7 +448,7 @@ def _try_match_flow_bank_clip(
     scored: list[tuple[int, dict]] = []
     for clip in flow_clips:
         fid = str(clip.get("file_id") or "")
-        wurl = str(clip.get("web_url") or f"flow://{fid}")
+        wurl = str(clip.get("url") or clip.get("web_url") or f"flow://{fid}")
         if not fid or fid in used_flow_ids or wurl in used_urls:
             continue
         sc = _score_flow_clip_for_scene(str(clip.get("filename") or ""), scene)
@@ -469,11 +469,11 @@ def _try_match_flow_bank_clip(
     for _sc, clip in scored[:3]:
         fid = str(clip["file_id"])
         fname = str(clip["filename"])
-        wurl = str(clip.get("web_url") or f"flow://{fid}")
+        wurl = str(clip.get("url") or clip.get("web_url") or f"flow://{fid}")
         try:
             dl_resp = requests.post(
                 webhook_url,
-                json={"action": "download_drive_file", "token": token, "file_id": fid},
+                json={"action": "download_file", "token": token, "file_id": fid},
                 timeout=90,
             )
             if dl_resp.status_code != 200:
@@ -827,6 +827,90 @@ def resolve_scene_sfx_cues(
     )
 
 
+_FILLER_AND_ADJECTIVES: frozenset[str] = frozenset({
+    "the", "and", "with", "from", "into", "that", "this", "for", "are", "was",
+    "in", "on", "of", "to", "a", "an", "at", "by", "or", "as", "is", "be",
+    "has", "had", "can", "not", "but", "out", "off", "all", "its", "one", "two",
+    "big", "low", "high", "use", "used", "using", "show", "showing", "video",
+    "clip", "clips", "footage", "close", "closeup", "macro", "shot", "view",
+    "real", "screen", "monitor", "computer", "dark", "light", "bright", "cold",
+    "hot", "warm", "tiny", "small", "large", "fast", "slow", "hard", "soft",
+    "red", "green", "blue", "white", "black", "orange", "yellow", "background",
+    "human", "person", "people", "hand", "hands", "finger", "fingers", "inside",
+    "surface", "object", "thing", "modern", "clean", "simple", "everyday", "next",
+})
+
+_DOMAIN_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "cooktop": ("stove", "induction", "kitchen", "cooking", "pan", "pot", "burner"),
+    "stove": ("cooktop", "kitchen", "cooking", "pan", "burner"),
+    "induction": ("cooktop", "stove", "coil", "pan", "magnetic", "cooking"),
+    "smartphone": ("phone", "mobile", "iphone", "android", "screen", "touchscreen"),
+    "phone": ("smartphone", "mobile", "iphone", "display", "screen", "charger"),
+    "checkout": ("payment", "terminal", "card", "credit", "nfc", "register", "store"),
+    "payment": ("card", "credit", "contactless", "terminal", "phone", "pos"),
+    "nfc": ("contactless", "payment", "card", "phone", "chip", "coil"),
+    "oled": ("display", "screen", "smartphone", "pixel", "led", "tv"),
+    "earbuds": ("earphones", "headphones", "audio", "music", "wireless"),
+    "microwave": ("oven", "kitchen", "food", "cooking", "heating"),
+    "fridge": ("refrigerator", "freezer", "cooling", "ice", "kitchen"),
+    "refrigerator": ("fridge", "freezer", "ice", "cooling", "kitchen"),
+    "teflon": ("pan", "nonstick", "skillet", "cooking", "coating", "egg"),
+    "nonstick": ("pan", "frying", "skillet", "cooking", "kitchen"),
+    "smartwatch": ("watch", "fitness", "wrist", "wearable", "tracker", "heart"),
+    "airplane": ("aircraft", "plane", "jet", "wing", "flight", "window"),
+    "elevator": ("lift", "building", "cable", "skyscraper"),
+    "battery": ("charging", "charger", "power", "energy", "electric", "lithium"),
+    "solar": ("panel", "photovoltaic", "sunlight", "renewable", "energy"),
+    "turbine": ("wind", "blade", "generator", "power", "energy"),
+    "filter": ("water", "purifier", "clean", "charcoal", "glass"),
+    "bridge": ("highway", "steel", "road", "structure"),
+    "plastic": ("bottle", "polymer", "packaging", "recycling"),
+}
+
+_IRRELEVANT_STOCK_NOISE: frozenset[str] = frozenset({
+    "jellyfish", "cow", "cows", "penguin", "penguins", "butterfly", "butterflies",
+    "snake", "python", "squirrel", "kitten", "puppy", "cat", "dog", "moose",
+    "alpaca", "sheep", "goat", "horse", "flamingo", "deer", "duck", "bird",
+    "fireworks", "skateboard", "skater", "wedding", "bride", "tulip", "tulips",
+    "poppy", "snowdrop", "daisy", "lavender", "bacon", "beer", "cocktail",
+    "pilates", "yoga", "ballet", "marbles", "antiquariat", "amethyst",
+    "cream", "chocolate", "cake", "dessert", "candy",
+})
+
+
+def _extract_scene_topic_terms(scene: SceneSpec) -> set[str]:
+    raw_blob = " ".join([scene.visual_query, *scene.fallback_queries]).lower()
+    base_tokens = [
+        t for t in re.findall(r"[a-z]{3,}", raw_blob)
+        if t not in _FILLER_AND_ADJECTIVES
+    ]
+    expanded: set[str] = set(base_tokens)
+    for t in base_tokens:
+        for syn in _DOMAIN_SYNONYMS.get(t, ()):
+            expanded.add(syn)
+    return expanded
+
+
+def _metadata_relevance_score(cand: VideoCandidate, scene: SceneSpec, topic_terms: set[str]) -> int:
+    title_low = cand.title.lower()
+    # Strip "pixabay #12345 - " prefix before checking tokens
+    meta_clean = re.sub(r"^(?:pixabay|pexels)\s*#\d+\s*-\s*", "", title_low)
+    meta_tokens = set(re.findall(r"[a-z]{3,}", meta_clean))
+    scene_raw_low = " ".join([scene.visual_query, *scene.fallback_queries, scene.narration or ""]).lower()
+    for noise_tok in _IRRELEVANT_STOCK_NOISE:
+        if noise_tok in meta_tokens and noise_tok not in scene_raw_low:
+            return -10
+    if not topic_terms:
+        return 1
+    hits = len(meta_tokens & topic_terms)
+    # Give partial substring bonus for longer root words (e.g. 'cook' in 'cooking', 'micro' in 'microchip')
+    if hits == 0:
+        for t in topic_terms:
+            if len(t) >= 5 and t[:5] in meta_clean:
+                hits += 1
+    return hits
+
+
 def scout_assets_for_scenes(
     scenes: list[SceneSpec],
     assets_dir: Path,
@@ -842,7 +926,7 @@ def scout_assets_for_scenes(
     results: list[SceneAsset] = []
     used_urls: set[str] = set(exclude_urls or ())
     used_stems: set[str] = set()
-    max_screens = int(os.environ.get("ASSET_MAX_SCREENS_PER_SCENE", "6"))
+    max_screens = int(os.environ.get("ASSET_MAX_SCREENS_PER_SCENE", "3"))
     flow_bank_clips = list_flow_clip_bank()
     used_flow_ids: set[str] = set()
     try:
@@ -883,7 +967,9 @@ def scout_assets_for_scenes(
         fallback_cand: Optional[VideoCandidate] = None
         fallback_info: Optional[dict] = None
         fallback_raw: Optional[Path] = None
+        fallback_meta_score = 0
         screens_done = 0
+        topic_terms = _extract_scene_topic_terms(scene)
 
         if manual_overrides and scene.scene_id in manual_overrides:
             cand = manual_overrides[scene.scene_id]
@@ -906,31 +992,25 @@ def scout_assets_for_scenes(
 
         if chosen_cand is None:
             raw_queries = [scene.visual_query] + list(scene.fallback_queries)
-            stop_words = {
-                "the", "and", "with", "from", "into", "that", "this", "for", "are", "was",
-                "in", "on", "of", "to", "a", "an", "at", "by", "or", "as", "is", "be",
-                "has", "had", "can", "not", "but", "out", "off", "all", "its", "one", "two",
-                "big", "low", "use", "video", "clip", "footage", "close", "closeup", "shot",
-                "view", "real", "screen", "monitor", "computer", "dark", "background",
-                "human", "person", "hand",
-            }
+            if owner_visual_bias:
+                raw_queries = [f"{scene.visual_query} {owner_visual_bias}"] + raw_queries
             broadened: list[str] = []
-            single_nouns: list[str] = []
+            noun_anchors: list[str] = []
             for q in raw_queries:
-                words = [w for w in re.findall(r"[A-Za-z]+", q.lower()) if len(w) >= 3 and w not in stop_words]
+                words = [w for w in re.findall(r"[A-Za-z]+", q.lower()) if len(w) >= 3 and w not in _FILLER_AND_ADJECTIVES]
                 if len(words) >= 2:
                     broadened.append(" ".join(words[:2]))
                     broadened.append(" ".join(words[-2:]))
-                for w in words[:2] + words[-1:]:
-                    if len(w) >= 4 or w in {"ice", "oil", "egg", "tea", "pan", "hot"}:
-                        single_nouns.append(w)
+                for w in words:
+                    if w in _DOMAIN_SYNONYMS and w not in noun_anchors:
+                        noun_anchors.append(w)
 
             scene_text_blob = " ".join([scene.visual_query, *scene.fallback_queries, scene.narration or ""]).lower()
             is_gadget_or_home = bool(
                 re.search(
                     r"\b(?:phone|smartphone|screen|oled|battery|charger|earbuds|watch|camera|"
-                    r"microwave|fridge|stove|kitchen|car|ev|bridge|elevator|traffic|road|glass|"
-                    r"plastic|solar|wind|airplane|vr|headset|sensor|chip|circuit|laptop)\b",
+                    r"microwave|fridge|stove|cooktop|pan|kitchen|car|ev|bridge|elevator|traffic|road|glass|"
+                    r"plastic|solar|wind|airplane|vr|headset|sensor|chip|circuit|laptop|payment)\b",
                     scene_text_blob,
                 )
             )
@@ -938,7 +1018,7 @@ def scout_assets_for_scenes(
                 generic_fallbacks = [
                     "smartphone technology closeup",
                     "circuit board microchip macro",
-                    "modern kitchen appliance cooking",
+                    "modern kitchen cooking pan",
                     "electric car city driving",
                     "engineering laboratory testing",
                 ]
@@ -948,13 +1028,12 @@ def scout_assets_for_scenes(
                     "engineering workshop prototype",
                     "electronic circuit macro",
                     "solar panels clean energy",
-                    "crystal growth microscope",
                     "science laboratory glassware",
                 ]
 
             seen_q: set[str] = set()
             queries: list[str] = []
-            for q in [*raw_queries, *broadened, *single_nouns, *generic_fallbacks]:
+            for q in [*raw_queries, *broadened, *noun_anchors[:2], *generic_fallbacks]:
                 q_norm = q.strip()
                 if q_norm and q_norm.lower() not in seen_q:
                     seen_q.add(q_norm.lower())
@@ -966,28 +1045,41 @@ def scout_assets_for_scenes(
                 if len(stock_cands) < 3:
                     stock_cands += search_pexels(q, orientation="landscape")
                 is_generic_q = q in generic_fallbacks
-                wiki_cands = search_wikimedia_videos(q) if (len(stock_cands) < 2 or is_generic_q) else []
-                q_terms = [w for w in re.findall(r"[a-z]+", q.lower()) if len(w) >= 3 and w not in stop_words]
+                wiki_cands = search_wikimedia_videos(q) if (len(stock_cands) < 3 or is_generic_q) else []
+                q_terms = [w for w in re.findall(r"[a-z]+", q.lower()) if len(w) >= 3 and w not in _FILLER_AND_ADJECTIVES]
                 if wiki_cands and not is_generic_q and q_terms:
                     matched_wiki = [
                         wc for wc in wiki_cands
                         if any(t in wc.title.lower() for t in q_terms)
                     ]
-                    # Only keep relevant matches; drop unrelated Wikimedia noise
                     wiki_cands = matched_wiki
-                    wiki_cands.sort(
-                        key=lambda c: (-sum(1 for t in q_terms if t in c.title.lower()), 0 if c.width >= 720 else 1, -min(c.width, 1920))
-                    )
                 nasa_cands = (
                     search_nasa_videos(q, limit=3)
                     if (not is_gadget_or_home and len(stock_cands) < 2 and len(wiki_cands) < 2)
                     else []
                 )
                 cands = stock_cands + wiki_cands + nasa_cands
-                if not wiki_cands or is_generic_q:
-                    cands.sort(key=lambda c: (source_rank.get(c.source, 9), 0 if c.width >= 720 else 1, -min(c.width, 1920)))
-                per_query_screens = 0
+                scored_cands: list[tuple[int, VideoCandidate]] = []
                 for cand in cands:
+                    m_score = _metadata_relevance_score(cand, scene, topic_terms)
+                    if m_score < 0:
+                        continue
+                    # On specific queries, skip completely un-tagged / 0-overlap Pixabay hits BEFORE spending Vision quota!
+                    if not is_generic_q and m_score == 0 and cand.source == "pixabay":
+                        continue
+                    scored_cands.append((m_score, cand))
+
+                scored_cands.sort(
+                    key=lambda pair: (
+                        -pair[0],
+                        source_rank.get(pair[1].source, 9),
+                        0 if pair[1].width >= 720 else 1,
+                        -min(pair[1].width, 1920),
+                    )
+                )
+
+                per_query_screens = 0
+                for m_score, cand in scored_cands:
                     stem = cand.title.lower()[:32]
                     if cand.download_url in used_urls or cand.page_url in used_urls or stem in used_stems:
                         continue
@@ -1003,7 +1095,12 @@ def scout_assets_for_scenes(
                     screens_done += 1
                     per_query_screens += 1
                     ok, clean, reason = vision_screen_clip(raw_path, scene)
-                    print(f"[asset_scout] {scene.scene_id} screen '{cand.title[:60]}': ok={ok} ({reason[:160]})")
+                    is_rate_limit = "rate-limit" in reason.lower()
+                    print(f"[asset_scout] {scene.scene_id} screen (meta={m_score}) '{cand.title[:56]}': ok={ok} ({reason[:145]})")
+                    # If Vision API was temporarily rate-limited BUT metadata strongly matches scene keywords (>=2), accept cleanly!
+                    if not ok and is_rate_limit and m_score >= 2:
+                        ok = True
+                        print(f"[asset_scout] {scene.scene_id}: promoted strong lexical match (meta={m_score}) during Vision 429")
                     if ok:
                         chosen_info = _transcode_to_mp4(raw_path, raw_info, dest_mp4)
                         if chosen_info:
@@ -1013,10 +1110,14 @@ def scout_assets_for_scenes(
                                 fallback_raw = None
                             break
                         continue
-                    if clean and fallback_cand is None:
+                    # Keep fallback only if lexical match exists OR Vision itself verified clean on a generic tech/lab query
+                    eligible_fb = clean and (m_score >= 1 or (not is_rate_limit and is_generic_q))
+                    if eligible_fb and (fallback_cand is None or m_score > fallback_meta_score):
+                        if fallback_raw is not None:
+                            fallback_raw.unlink(missing_ok=True)
                         fb_raw = dest_mp4.with_name(f"{dest_mp4.stem}_fb.raw")
                         raw_path.replace(fb_raw)
-                        fallback_cand, fallback_info, fallback_raw = cand, raw_info, fb_raw
+                        fallback_cand, fallback_info, fallback_raw, fallback_meta_score = cand, raw_info, fb_raw, m_score
                     else:
                         raw_path.unlink(missing_ok=True)
                 if chosen_cand or screens_done >= max_screens:
@@ -1026,13 +1127,12 @@ def scout_assets_for_scenes(
                 norm_info = _transcode_to_mp4(fallback_raw, fallback_info or {}, dest_mp4)
                 if norm_info:
                     chosen_cand, chosen_info = fallback_cand, norm_info
-                    print(f"[asset_scout] {scene.scene_id}: memakai fallback aman (relevansi rendah)")
+                    print(f"[asset_scout] {scene.scene_id}: memakai fallback aman (meta={fallback_meta_score})")
 
         if fallback_raw is not None and fallback_raw.exists():
             fallback_raw.unlink(missing_ok=True)
 
         if (chosen_cand is None or chosen_info is None) and existing_assets and scene.scene_id in existing_assets:
-            # Re-scout found nothing better/safer: keep the previous footage instead of crashing the episode
             print(f"[asset_scout] {scene.scene_id}: tidak ada pengganti yang lolos screening; memakai footage sebelumnya")
             results.append(existing_assets[scene.scene_id])
             continue

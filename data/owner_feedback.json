@@ -1,34 +1,14 @@
 {
   "last_update_id": 0,
-  "items": [
-    {
-      "created_at_wib": "2026-11-26 09:32 WIB",
-      "mode": "next_video",
-      "target_episode_id": "",
-      "text": "Bisakah kamu trigger untuk upload sekarang?"
-    }
-  ],
+  "items": [],
   "agent_directives": {
-    "agent_1": [
-      "[OWNER FEEDBACK • 2026-11-26 09:32 WIB]: Bisakah kamu trigger untuk upload sekarang?"
-    ],
-    "agent_2": [
-      "[OWNER FEEDBACK • 2026-11-26 09:32 WIB]: Bisakah kamu trigger untuk upload sekarang?"
-    ],
-    "agent_3": [
-      "[OWNER FEEDBACK • 2026-11-26 09:32 WIB]: Bisakah kamu trigger untuk upload sekarang?"
-    ],
-    "agent_5": [
-      "[OWNER FEEDBACK • 2026-11-26 09:32 WIB]: Bisakah kamu trigger untuk upload sekarang?"
-    ],
+    "agent_1": [],
+    "agent_2": [],
+    "agent_3": [],
+    "agent_5": [],
     "agent_6": [],
-    "agent_7": [
-      "Trigger immediate publication of the next video now.",
-      "[OWNER FEEDBACK • 2026-11-26 09:32 WIB]: Bisakah kamu trigger untuk upload sekarang?"
-    ],
-    "agent_8": [
-      "[OWNER FEEDBACK • 2026-11-26 09:32 WIB]: Bisakah kamu trigger untuk upload sekarang?"
-    ]
+    "agent_7": [],
+    "agent_8": []
   },
   "runtime_overrides": {
     "force_sfx_every_transition": true,

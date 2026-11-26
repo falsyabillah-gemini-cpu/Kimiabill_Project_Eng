@@ -1927,8 +1927,8 @@ def render_hybrid_science_video(
                         draw.text((540, ty), ln, font=title_font, fill=INK, anchor="mm")
                         ty += line_step
                 if mascots:
-                    mascots.paste(canvas, "male_curious", center_x=135, bottom_y=1530, target_h=220, local_t=cover_t, appear_at=0.0)
-                    mascots.paste(canvas, "female_curious", center_x=945, bottom_y=1530, target_h=220, local_t=cover_t, appear_at=0.0)
+                    mascots.paste(canvas, "male_curious", center_x=115, bottom_y=1335, target_h=175, local_t=cover_t, appear_at=0.0)
+                    mascots.paste(canvas, "female_curious", center_x=965, bottom_y=1335, target_h=175, local_t=cover_t, appear_at=0.0)
             elif is_last:
                 # Final scene: ANSWERED! + celebrating duo mascots + Thank You / Follow / Sources end-card
                 outro_start = max(0.15, seg.duration_sec - 4.5)
@@ -1942,8 +1942,8 @@ def render_hybrid_science_video(
                     requested_by=getattr(plan, "requested_by", None),
                 )
                 if mascots:
-                    mascots.paste(canvas, "male_celebrate", center_x=170, bottom_y=960, target_h=235, local_t=local_t, appear_at=0.1)
-                    mascots.paste(canvas, "female_celebrate", center_x=910, bottom_y=960, target_h=235, local_t=local_t, appear_at=0.2)
+                    mascots.paste(canvas, "male_celebrate", center_x=170, bottom_y=940, target_h=220, local_t=local_t, appear_at=0.1)
+                    mascots.paste(canvas, "female_celebrate", center_x=910, bottom_y=940, target_h=220, local_t=local_t, appear_at=0.2)
             else:
                 # Middle scenes: Genuine 30fps mechanistic simulation + alternating mascot
                 h_col = header_colors[seg_idx % len(header_colors)]
@@ -1951,9 +1951,9 @@ def render_hybrid_science_video(
                 _draw_mechanistic_diagram_card(draw, seg, seg_idx, local_t, fonts, discipline=plan.discipline)
                 if mascots:
                     if seg_idx % 2 == 1:
-                        mascots.paste(canvas, "male_explain", center_x=135, bottom_y=1530, target_h=215, local_t=local_t, appear_at=0.12)
+                        mascots.paste(canvas, "male_explain", center_x=115, bottom_y=1335, target_h=175, local_t=local_t, appear_at=0.12)
                     else:
-                        mascots.paste(canvas, "female_explain", center_x=945, bottom_y=1530, target_h=215, local_t=local_t, appear_at=0.12)
+                        mascots.paste(canvas, "female_explain", center_x=965, bottom_y=1335, target_h=175, local_t=local_t, appear_at=0.12)
 
             # Diagonal comic wipe transition between scenes
             if seg_idx > 0 and local_t < 0.30:
