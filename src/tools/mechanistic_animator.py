@@ -1569,7 +1569,7 @@ def _anim_force_wave(
 
     _draw_label_pill(draw, left_x + 120, y0 + 26, params["actor_a"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=260)
     _draw_label_pill(draw, right_x - 120, y0 + 26, params["actor_b"], fonts["micro_bold"], bg=ORANGE, fg=WHITE, max_w=260)
-    _draw_label_pill(draw, cx, y1 - 22, f"EFFECT: {params['result']}", fonts["tiny_bold"], bg=BLUE, fg=WHITE, max_w=(x1 - x0) - 40)
+    _draw_label_pill(draw, cx, y1 - 22, f"OUTCOME: {params['result']}", fonts["tiny_bold"], bg=BLUE, fg=WHITE, max_w=(x1 - x0) - 40)
 
 
 def _anim_math_geometry(
@@ -2088,7 +2088,7 @@ def _draw_subscribe_badge(
     _draw_label_pill(
         draw,
         540,
-        1245 - pulse_y,
+        315 - pulse_y,
         cta_txt,
         fonts["tiny_bold"],
         bg=RED,

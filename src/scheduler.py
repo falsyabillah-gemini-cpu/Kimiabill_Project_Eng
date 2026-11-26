@@ -313,7 +313,7 @@ def run_one_automated_episode(
                         affected = _extract_affected_scenes(audit, valid_scene_ids)
                         need_rescout = (
                             audit.revision_target in ("asset_scout", "both")
-                            or audit.visual_relevance_score < 7.5
+                            or (audit.revision_target != "editor" and audit.visual_relevance_score < 6.5)
                         )
                         if need_rescout:
                             target_scenes = affected or valid_scene_ids[1:-1] or valid_scene_ids
