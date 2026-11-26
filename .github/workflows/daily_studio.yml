@@ -13,6 +13,8 @@ on:
       - telegram_rerender
       - telegram_reject_next
       - telegram_ai_audit
+      - telegram_save_backup
+      - telegram_reject_use_backup
   workflow_dispatch:
     inputs:
       publish_mode:
@@ -46,6 +48,11 @@ on:
         required: false
         default: ""
         type: string
+      save_as_backup:
+        description: "Save produced video straight into Standby Video Bank (kept unlisted reserve)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -119,9 +126,10 @@ jobs:
             git push
           fi
 
-      - name: Handle Interactive Telegram Approve Dispatch
-        if: ${{ steps.guard.outputs.skip != 'true' && github.event_name == 'repository_dispatch' && github.event.action == 'telegram_approve' }}
+      - name: Handle Lightweight Telegram Approve or Save-to-Video-Bank Dispatch
+        if: ${{ steps.guard.outputs.skip != 'true' && github.event_name == 'repository_dispatch' && (github.event.action == 'telegram_approve' || github.event.action == 'telegram_save_backup') }}
         env:
+          DISPATCH_ACTION: ${{ github.event.action }}
           DISPATCH_EP_ID: ${{ github.event.client_payload.episode_id || '' }}
           GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
           GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
@@ -134,10 +142,24 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           pip install -q pydantic pyyaml requests python-dotenv
-          python -m src.scheduler approve --episode-id "$DISPATCH_EP_ID"
+          if [ "$DISPATCH_ACTION" = "telegram_save_backup" ]; then
+            python -m src.scheduler save-backup --episode-id "$DISPATCH_EP_ID"
+          else
+            python -m src.scheduler approve --episode-id "$DISPATCH_EP_ID"
+          fi
+          git config user.name "Bill_Explains Studio Bot"
+          git config user.email "bot@studio.local"
+          for f in data/pending_review.json data/backup_queue.json data/published_history.json data/audience_requests.json; do
+            [ -e "$f" ] && git add "$f" || true
+          done
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update review & video bank state [skip ci]"
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME:-main}" || true
+            git push
+          fi
 
       - name: Install FFmpeg & Dependencies
-        if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && (github.event.action == 'telegram_feedback' || github.event.action == 'telegram_approve')) }}
+        if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && (github.event.action == 'telegram_feedback' || github.event.action == 'telegram_approve' || github.event.action == 'telegram_save_backup')) }}
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-liberation
@@ -180,7 +202,7 @@ jobs:
           PY
 
       - name: Run Production or Interactive Dispatch Action
-        if: ${{ steps.guard.outputs.skip != 'true' && inputs.resume_artifact_run_id == '' && !(github.event_name == 'repository_dispatch' && (github.event.action == 'telegram_feedback' || github.event.action == 'telegram_approve')) }}
+        if: ${{ steps.guard.outputs.skip != 'true' && inputs.resume_artifact_run_id == '' && !(github.event_name == 'repository_dispatch' && (github.event.action == 'telegram_feedback' || github.event.action == 'telegram_approve' || github.event.action == 'telegram_save_backup')) }}
         env:
           PYTHONUNBUFFERED: "1"
           GH_TOKEN: ${{ github.token }}
@@ -200,6 +222,8 @@ jobs:
           STUDIO_SLOT: ${{ inputs.slot || ((github.event.schedule == '15 13 * * *') && 'slot_0400' || 'slot_2100') }}
           TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || ((github.event.schedule == '15 13 * * *' || inputs.slot == 'slot_0400') && '04:00' || '21:00') }}
           SKIP_IF_SLOT_PUBLISHED: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
+          SAVE_AS_BACKUP: ${{ inputs.save_as_backup || 'false' }}
+          ALLOW_BACKUP_FALLBACK: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
@@ -221,6 +245,8 @@ jobs:
             python -m src.scheduler rerender --episode-id "$DISPATCH_EP_ID" --feedback "$OWNER_FEEDBACK_OVERRIDE"
           elif [ "$DISPATCH_ACTION" = "telegram_reject_next" ]; then
             python -m src.scheduler reject-next --episode-id "$DISPATCH_EP_ID"
+          elif [ "$DISPATCH_ACTION" = "telegram_reject_use_backup" ]; then
+            python -m src.scheduler reject-backup --episode-id "$DISPATCH_EP_ID"
           elif [ "$DISPATCH_ACTION" = "telegram_ai_audit" ]; then
             python -m src.chief_editor_audit audit --episode-id "$DISPATCH_EP_ID"
           else
@@ -230,22 +256,22 @@ jobs:
             python -m src.scheduler run --slot "$STUDIO_SLOT"
           fi
 
-      - name: Commit Studio State (Pending Review, Rejected Topics & History)
-        if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
+      - name: Commit Studio State (Pending Review, Video Bank, Rejected & History)
+        if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && (github.event.action == 'telegram_feedback' || github.event.action == 'telegram_approve' || github.event.action == 'telegram_save_backup')) }}
         run: |
           git config user.name "Bill_Explains Studio Bot"
           git config user.email "bot@studio.local"
-          for f in data/pending_review.json data/rejected_topics.json data/published_history.json data/audience_requests.json data/memory.db data/owner_feedback.json; do
+          for f in data/pending_review.json data/backup_queue.json data/rejected_topics.json data/published_history.json data/audience_requests.json data/memory.db data/owner_feedback.json; do
             [ -e "$f" ] && git add "$f" || true
           done
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update studio review & history state [skip ci]"
+            git commit -m "chore: update studio review, video bank & history state [skip ci]"
             git pull --rebase --autostash origin "${GITHUB_REF_NAME:-main}" || true
             git push
           fi
 
       - name: Upload Rendered Video Artifact
-        if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && (github.event.action == 'telegram_feedback' || github.event.action == 'telegram_approve')) }}
+        if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && (github.event.action == 'telegram_feedback' || github.event.action == 'telegram_approve' || github.event.action == 'telegram_save_backup')) }}
         uses: actions/upload-artifact@v7
         with:
           name: studio-episode-${{ github.run_id }}

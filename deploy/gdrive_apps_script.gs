@@ -144,7 +144,8 @@ function _processTelegramUpdate(payload) {
     const epId = parts.slice(1).join(":");
 
     if (cmd === "revise" && epId) {
-      _answerCallbackQuery(botToken, cqId, "Select what to fix:");
+      _answerCallbackQuery(botToken, cqId, "Select what to fix or reply with text!");
+      props.setProperty("PENDING_REVISE_EPISODE_ID", epId);
       _editInlineMarkup(botToken, cqChatId, cqMsgId, [
         [
           { text: "🎥 Fix B-Roll", callback_data: "revise_broll:" + epId },
@@ -152,14 +153,29 @@ function _processTelegramUpdate(payload) {
         ],
         [
           { text: "🎙️ Fix Script/Audio", callback_data: "revise_script:" + epId },
-          { text: "❌ Cancel Revise", callback_data: "restore_btns:" + epId },
+          { text: "◀️ Back", callback_data: "restore_btns:" + epId },
         ],
       ]);
-      _replyTg(botToken, allowedChatId, "✏️ Quick button tapped for `" + epId + "`, OR send `/rerender " + epId + " <custom instructions>` anytime.");
+      _replyTg(botToken, allowedChatId, "✏️ Tap a focus button above for `" + epId + "`, OR send your custom revision instructions as a short text message right now.");
+      return { ok: true };
+    }
+
+    if (cmd === "reject" && epId) {
+      _answerCallbackQuery(botToken, cqId, "Replace with Video Bank or New Topic?");
+      _editInlineMarkup(botToken, cqChatId, cqMsgId, [
+        [
+          { text: "💾 Use Video Bank", callback_data: "reject_backup:" + epId },
+          { text: "🆕 Produce New Topic", callback_data: "reject_new:" + epId },
+        ],
+        [
+          { text: "◀️ Cancel Reject", callback_data: "restore_btns:" + epId },
+        ],
+      ]);
       return { ok: true };
     }
 
     if (cmd === "restore_btns" && epId) {
+      props.deleteProperty("PENDING_REVISE_EPISODE_ID");
       _answerCallbackQuery(botToken, cqId, "Restored options");
       _editInlineMarkup(botToken, cqChatId, cqMsgId, [
         [
@@ -167,13 +183,17 @@ function _processTelegramUpdate(payload) {
           { text: "🔄 Revise Video", callback_data: "revise:" + epId },
         ],
         [
-          { text: "❌ Reject & Next Topic", callback_data: "reject:" + epId },
+          { text: "💾 Save to Video Bank", callback_data: "save_backup:" + epId },
+          { text: "❌ Reject Topic", callback_data: "reject:" + epId },
+        ],
+        [
           { text: "🤖 Delegate to AI", callback_data: "ai_audit:" + epId },
         ],
       ]);
       return { ok: true };
     }
 
+    props.deleteProperty("PENDING_REVISE_EPISODE_ID");
     let eventType = "";
     let dispatchPayload = { episode_id: epId };
     let statusBtnText = "⏳ Dispatched...";
@@ -183,6 +203,10 @@ function _processTelegramUpdate(payload) {
       eventType = "telegram_approve";
       statusBtnText = "✅ Approved — Scheduling...";
       replyMsg = "✅ Approved `" + epId + "`! Transitioning privacy/publishAt on YouTube...";
+    } else if (cmd === "save_backup" && epId) {
+      eventType = "telegram_save_backup";
+      statusBtnText = "💾 Moving to Video Bank...";
+      replyMsg = "💾 Saving `" + epId + "` into Standby Video Bank (kept Unlisted & safe from today's AI auto-publish)...";
     } else if ((cmd === "revise_broll" || cmd === "revise_diagrams" || cmd === "revise_script") && epId) {
       eventType = "telegram_rerender";
       const fbMap = {
@@ -193,10 +217,14 @@ function _processTelegramUpdate(payload) {
       dispatchPayload = { episode_id: epId, feedback: fbMap[cmd], text: fbMap[cmd], mode: "rerender" };
       statusBtnText = "🔄 Revising Video...";
       replyMsg = "🔄 Revising `" + epId + "`: " + fbMap[cmd];
-    } else if (cmd === "reject" && epId) {
+    } else if ((cmd === "reject_new" || cmd === "reject_legacy") && epId) {
       eventType = "telegram_reject_next";
       statusBtnText = "❌ Rejected — Generating Next Topic...";
       replyMsg = "❌ Rejected `" + epId + "`. Blacklisting topic, deleting draft, and generating next topic...";
+    } else if (cmd === "reject_backup" && epId) {
+      eventType = "telegram_reject_use_backup";
+      statusBtnText = "💾❌ Using Video Bank...";
+      replyMsg = "💾❌ Rejected `" + epId + "`! Promoting 1 standby video from the Video Bank to replace it...";
     } else if (cmd === "ai_audit" && epId) {
       eventType = "telegram_ai_audit";
       statusBtnText = "🤖 AI Chief Editor Auditing...";
@@ -231,7 +259,7 @@ function _processTelegramUpdate(payload) {
       botToken,
       allowedChatId,
       "🤖 " + botName + " Studio v2 Bot Active.\n" +
-      "• Drafts upload as Unlisted first with 4 inline audit buttons (Approve, Revise, Reject & Next, AI Audit).\n" +
+      "• Drafts upload as Unlisted first with 5 inline audit buttons (Approve, Revise, Save to Video Bank, Reject, AI Audit).\n" +
       "• Send `/rerender <episode_id optional> <notes>` = immediately re-render replacement.\n" +
       "• Send `/rules` = active overrides | `/clear_rules` = reset extra rules."
     );
@@ -243,20 +271,25 @@ function _processTelegramUpdate(payload) {
     return { ok: true, warning: "GITHUB_PAT missing" };
   }
 
+  const pendingReviseEp = String(props.getProperty("PENDING_REVISE_EPISODE_ID") || "").trim();
   const isRulesCmd = low.indexOf("/rules") === 0 || low === "/aturan";
   const isClearCmd = low.indexOf("/clear_rules") === 0 || low.indexOf("/clear") === 0;
-  const isRerender = low.indexOf("/rerender") === 0;
-  let cleanNote = isRerender
+  const isRerenderCmd = low.indexOf("/rerender") === 0;
+  const isRerender = isRerenderCmd || (Boolean(pendingReviseEp) && !isRulesCmd && !isClearCmd && low.indexOf("/") !== 0);
+  let cleanNote = isRerenderCmd
     ? text.slice(9).trim()
     : (isRulesCmd || isClearCmd ? text : (low.indexOf("/feedback") === 0 ? text.slice(9).trim() : text));
 
-  let epOverride = "";
-  if (isRerender && cleanNote) {
+  let epOverride = pendingReviseEp;
+  if (isRerenderCmd && cleanNote) {
     const mEp = cleanNote.match(/^(ep_[A-Za-z0-9_]+)\s*(.*)$/);
     if (mEp) {
       epOverride = mEp[1];
       cleanNote = (mEp[2] || "").trim();
     }
+  }
+  if (pendingReviseEp && isRerender) {
+    props.deleteProperty("PENDING_REVISE_EPISODE_ID");
   }
 
   const eventType = isRerender ? "telegram_rerender" : "telegram_feedback";
