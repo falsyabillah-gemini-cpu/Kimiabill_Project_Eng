@@ -39,6 +39,12 @@ from src.pipeline import (
     run_upload,
     save_state,
 )
+from src.tools.backup_queue import (
+    load_backup_queue,
+    peek_backup_count,
+    pop_next_backup_video,
+    push_backup_video,
+)
 from src.tools.gdrive_sync import can_upload_to_gdrive
 from src.tools.pending_review import (
     compute_target_publish_iso,
@@ -119,11 +125,17 @@ def run_one_automated_episode(
     target_publish_iso_override: Optional[str] = None,
     revision_count_override: int = 0,
     extra_avoid_titles: Optional[list[str]] = None,
+    save_as_backup_override: Optional[bool] = None,
 ) -> Optional[dict[str, Any]]:
     load_dotenv()
     brand_name = get_brand_name()
     slot = _resolve_slot(slot_override)
     target_publish_iso = target_publish_iso_override or compute_target_publish_iso(slot)
+    save_as_backup = (
+        save_as_backup_override
+        if save_as_backup_override is not None
+        else os.environ.get("SAVE_AS_BACKUP", "false").strip().lower() == "true"
+    )
 
     # Hard Rule: Automated runs ALWAYS produce as unlisted draft first unless explicitly dry_run
     requested_mode = os.environ.get("PUBLISH_MODE", "draft").strip().lower()
@@ -154,6 +166,14 @@ def run_one_automated_episode(
     avoid_titles: list[str] = list(extra_avoid_titles or [])
 
     try:
+        for bk in load_backup_queue():
+            bt = str(bk.get("topic_title") or "").strip()
+            if bt and bt not in avoid_titles:
+                avoid_titles.append(bt)
+    except Exception:
+        pass
+
+    try:
         from src.tools.weekly_growth_auditor import HISTORY_PATH
 
         if HISTORY_PATH.exists():
@@ -163,7 +183,7 @@ def run_one_automated_episode(
                 if t and t not in avoid_titles:
                     avoid_titles.append(t)
 
-        if os.environ.get("SKIP_IF_SLOT_PUBLISHED", "").lower() == "true" and not topic_hint:
+        if os.environ.get("SKIP_IF_SLOT_PUBLISHED", "").lower() == "true" and not topic_hint and not save_as_backup:
             target_date = target_publish_iso[:10]
             # Check multi-slot pending_review.json first (precise per-slot & per-target-date lock)
             pr_store = load_pending_reviews().get("episodes") or {}
@@ -384,16 +404,22 @@ def run_one_automated_episode(
                     if state.agent1 and state.agent2
                     else None
                 )
-                ref_url = (
-                    state.agent3.references[0].url
-                    if (state.agent3 and state.agent3.references)
-                    else ""
-                )
+                ref_url = ""
+                if state.agent3 and state.agent3.references:
+                    ref0 = state.agent3.references[0]
+                    ref_url = str(getattr(ref0, "url", None) or ref0 or "")
+
+                pinned_comment = ""
+                if state.agent7 and state.agent7.platform_copies:
+                    yt_cp = next((c for c in state.agent7.platform_copies if c.platform == "youtube_shorts"), None)
+                    if yt_cp and yt_cp.pinned_comment:
+                        pinned_comment = yt_cp.pinned_comment.strip()
+
                 gh_run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
                 art_name = f"studio-episode-{gh_run_id or episode_id}"
                 art_ref = f"{gh_run_id}:{art_name}" if gh_run_id else art_name
 
-                entry = upsert_pending_review({
+                base_payload = {
                     "episode_id": episode_id,
                     "slot": slot,
                     "topic_title": state.agent3.title if state.agent3 else title,
@@ -411,10 +437,25 @@ def run_one_automated_episode(
                     "tts_engine": tts_engine,
                     "revision_count": revision_count_override,
                     "qa_summary": qa_summary,
+                    "pinned_comment": pinned_comment,
                     "duration_sec": round(state.render_plan.total_duration_sec if state.render_plan else 0.0, 1),
                     "target_publish_iso": target_publish_iso,
-                    "status": "awaiting_review",
-                })
+                }
+
+                if save_as_backup:
+                    entry = upsert_pending_review({**base_payload, "status": "saved_as_backup"})
+                    push_backup_video(entry, reason="manual_backup_run")
+                    stok = peek_backup_count()
+                    send_telegram_message(
+                        f"💾 [{brand_name}] Saved straight to Standby Video Bank!\n"
+                        f"• Title: {entry.get('topic_title')}\n"
+                        f"• Unlisted YT: {entry.get('youtube_url') or '-'}\n"
+                        f"• Pro Drive: {entry.get('drive_url') or '-'}\n"
+                        f"• Total Video Bank stock: {stok} video(s) ready"
+                    )
+                    return entry
+
+                entry = upsert_pending_review({**base_payload, "status": "awaiting_review"})
                 msg_id = send_interactive_audit_message(entry, video_path=Path(final_video))
                 if msg_id:
                     entry = upsert_pending_review({"episode_id": episode_id, "telegram_message_id": msg_id})
@@ -431,11 +472,7 @@ def run_one_automated_episode(
                 if is_quota_err:
                     consecutive_quota_errors += 1
                     if consecutive_quota_errors >= 2:
-                        _tg_status(
-                            f"🛑 [{brand_name}] Gemini API quota exhausted (consecutive 429/503).\n"
-                            f"Stopping temporarily so quota recovers cleanly."
-                        )
-                        raise RuntimeError(f"Gemini API quota exhausted across consecutive attempts: {last_err}") from exc
+                        break
                     _tg_status(
                         f"⏳ [{brand_name}] Attempt #{total_attempts_done} hit Gemini RPM limit (429). "
                         f"Waiting 75s before retrying 1x..."
@@ -449,6 +486,8 @@ def run_one_automated_episode(
                     )
                 continue
 
+        if consecutive_quota_errors >= 2:
+            break
         if recovery_round < max_recovery_rounds and (time.monotonic() - run_t0) < max_wall_clock_sec:
             cooldown_s = min(180, 75 * recovery_round)
             print(f"[scheduler] Recovery round {recovery_round} exhausted; cooling down {cooldown_s}s before round {recovery_round + 1}...")
@@ -457,6 +496,20 @@ def run_one_automated_episode(
                 f"Cooling down {cooldown_s}s before round {recovery_round + 1}..."
             )
             time.sleep(cooldown_s)
+
+    # Standby Backup Video Bank Auto-Fallback on production failure
+    allow_backup = os.environ.get("ALLOW_BACKUP_FALLBACK", "true").strip().lower() != "false"
+    if allow_backup and not save_as_backup:
+        b_item = pop_next_backup_video()
+        if b_item:
+            prom = promote_backup_to_slot(
+                b_item,
+                slot=slot,
+                target_publish_iso=target_publish_iso,
+                reason=f"Auto-fallback after production failed ({last_err[:100]})",
+            )
+            print(f"[scheduler] Activated Standby Video Bank fallback: {prom}")
+            return prom
 
     _tg_status(
         f"❌ [{brand_name}] Production stopped after {total_attempts_done} attempts ({max_recovery_rounds} rounds).\n"
@@ -492,14 +545,14 @@ def handle_approve_episode(episode_id: Optional[str] = None) -> dict[str, Any]:
     if entry.get("status") in ("approved", "approved_by_ai"):
         return {"skipped": True, "episode_id": ep_id, "status": entry.get("status")}
 
-    first_comment = ""
+    first_comment = str(entry.get("pinned_comment") or "")
     req_id = None
     try:
         st = load_or_init_state(ep_id)
         req_id = st.request_id
         if st.agent7 and st.agent7.platform_copies:
             yt_cp = next((c for c in st.agent7.platform_copies if c.platform == "youtube_shorts"), None)
-            if yt_cp:
+            if yt_cp and yt_cp.pinned_comment:
                 first_comment = yt_cp.pinned_comment
     except Exception:
         pass
@@ -599,6 +652,113 @@ def handle_reject_and_next_episode(episode_id: Optional[str] = None, reason: str
     return {"rejected_episode_id": ep_id, "new_entry": new_entry}
 
 
+def promote_backup_to_slot(
+    backup_item: dict[str, Any],
+    *,
+    slot: Optional[str] = None,
+    target_publish_iso: Optional[str] = None,
+    reason: str = "Standby Video Bank promotion",
+) -> dict[str, Any]:
+    """Promote 1 unlisted standby Video Bank item into the active review slot and send interactive Telegram card."""
+    resolved_slot = _resolve_slot(slot)
+    pub_iso = target_publish_iso or compute_target_publish_iso(resolved_slot)
+    ep_id = str(backup_item.get("episode_id") or "")
+    entry = upsert_pending_review({
+        **backup_item,
+        "episode_id": ep_id,
+        "slot": resolved_slot,
+        "target_publish_iso": pub_iso,
+        "revision_count": 0,
+        "reminder_sent": False,
+        "status": "awaiting_review",
+    })
+    stok = peek_backup_count()
+    send_telegram_message(
+        f"🆘💾 [{get_brand_name()}] STANDBY VIDEO BANK ACTIVATED\n"
+        f"• Reason: {reason}\n"
+        f"• Title: {entry.get('topic_title')}\n"
+        f"• Remaining Video Bank stock: {stok} video(s)"
+    )
+    vp = Path(str(entry.get("final_video_path") or "")) if entry.get("final_video_path") else None
+    msg_id = send_interactive_audit_message(entry, video_path=vp if (vp and vp.exists()) else None)
+    if msg_id:
+        entry = upsert_pending_review({"episode_id": ep_id, "telegram_message_id": msg_id})
+    return entry
+
+
+def handle_save_to_backup(episode_id: Optional[str] = None) -> dict[str, Any]:
+    """Move an active awaiting_review draft into Standby Video Bank (kept unlisted & shielded from AI auto-publish)."""
+    load_dotenv()
+    entry = _resolve_target_episode(episode_id)
+    ep_id = str(entry["episode_id"])
+    if entry.get("status") in ("approved", "approved_by_ai"):
+        disable_audit_keyboard(entry.get("telegram_message_id"), "✅ Already Approved")
+        raise RuntimeError(f"Episode '{ep_id}' is already approved and cannot move to Video Bank.")
+
+    # Preserve pinned_comment from local state if present
+    if not entry.get("pinned_comment"):
+        try:
+            st = load_or_init_state(ep_id)
+            if st.agent7 and st.agent7.platform_copies:
+                yt_cp = next((c for c in st.agent7.platform_copies if c.platform == "youtube_shorts"), None)
+                if yt_cp and yt_cp.pinned_comment:
+                    entry["pinned_comment"] = yt_cp.pinned_comment.strip()
+        except Exception:
+            pass
+
+    mark_review_status(ep_id, "saved_as_backup", {"saved_to_bank_at_wib": datetime.now(WIB).isoformat(timespec="seconds")})
+    push_backup_video(entry, reason="telegram_save_backup")
+    disable_audit_keyboard(entry.get("telegram_message_id"), "💾 Saved to Video Bank")
+    stok = peek_backup_count()
+    send_telegram_message(
+        f"💾 [{get_brand_name()}] Moved '{entry.get('topic_title')}' into Standby Video Bank!\n"
+        f"• YouTube stays Unlisted ({entry.get('youtube_url') or '-'})\n"
+        f"• Protected from automatic 20:45 / 22:30 AI publish\n"
+        f"• Standby Video Bank stock: {stok} video(s)"
+    )
+    return {"saved_to_backup": True, "episode_id": ep_id, "backup_count": stok}
+
+
+def handle_reject_and_use_backup(episode_id: Optional[str] = None, reason: str = "owner_rejected_use_backup") -> dict[str, Any]:
+    """Blacklist rejected topic, delete unlisted YT draft, and promote 1 video from Standby Video Bank (or produce new if empty)."""
+    load_dotenv()
+    entry = _resolve_target_episode(episode_id)
+    ep_id = str(entry["episode_id"])
+    title = str(entry.get("topic_title") or "")
+    slug = str(entry.get("topic_slug") or ep_id)
+    slot = str(entry.get("slot") or "slot_2100")
+    target_iso = str(entry.get("target_publish_iso") or compute_target_publish_iso(slot))
+
+    add_rejected_topic(BASE_DIR, title=title or ep_id, slug=slug, reason=reason)
+    old_vid_id = str(entry.get("youtube_video_id") or "")
+    if old_vid_id:
+        delete_youtube_video(old_vid_id)
+
+    mark_review_status(ep_id, "rejected", {"rejected_reason": reason})
+    disable_audit_keyboard(entry.get("telegram_message_id"), "❌ Rejected — Swapped")
+
+    b_item = pop_next_backup_video()
+    if not b_item:
+        send_telegram_message(
+            f"⚠️ [{get_brand_name()}] Video Bank is currently empty — producing a fresh replacement episode for '{slot}'..."
+        )
+        new_entry = run_one_automated_episode(
+            slot_override=slot,
+            target_publish_iso_override=target_iso,
+            revision_count_override=0,
+            extra_avoid_titles=[title] if title else None,
+        )
+        return {"rejected_episode_id": ep_id, "used_backup": False, "new_entry": new_entry}
+
+    prom = promote_backup_to_slot(
+        b_item,
+        slot=slot,
+        target_publish_iso=target_iso,
+        reason=f"Replacement for rejected topic '{title}'",
+    )
+    return {"rejected_episode_id": ep_id, "used_backup": True, "promoted_entry": prom}
+
+
 def _run_daemon_loop() -> None:
     load_dotenv()
     default_slots = ",".join(get_daily_slots_wib())
@@ -628,9 +788,13 @@ def main() -> None:
     p_run = sub.add_parser("run")
     p_run.add_argument("--slot", default=None)
     p_run.add_argument("--topic-hint", default=None)
+    p_run.add_argument("--save-as-backup", action="store_true")
 
     p_app = sub.add_parser("approve")
     p_app.add_argument("--episode-id", default=None)
+
+    p_sb = sub.add_parser("save-backup")
+    p_sb.add_argument("--episode-id", default=None)
 
     p_rev = sub.add_parser("rerender")
     p_rev.add_argument("--episode-id", default=None)
@@ -640,18 +804,30 @@ def main() -> None:
     p_rej.add_argument("--episode-id", default=None)
     p_rej.add_argument("--reason", default="owner_rejected")
 
+    p_rb = sub.add_parser("reject-backup")
+    p_rb.add_argument("--episode-id", default=None)
+    p_rb.add_argument("--reason", default="owner_rejected_use_backup")
+
     sub.add_parser("daemon")
 
     args = parser.parse_args()
     if args.cmd == "run":
-        out = run_one_automated_episode(topic_hint=args.topic_hint, slot_override=args.slot)
+        out = run_one_automated_episode(
+            topic_hint=args.topic_hint,
+            slot_override=args.slot,
+            save_as_backup_override=True if args.save_as_backup else None,
+        )
         print(json.dumps(out or {}, ensure_ascii=False, indent=2))
     elif args.cmd == "approve":
         print(json.dumps(handle_approve_episode(args.episode_id), ensure_ascii=False, indent=2))
+    elif args.cmd == "save-backup":
+        print(json.dumps(handle_save_to_backup(args.episode_id), ensure_ascii=False, indent=2))
     elif args.cmd == "rerender":
         print(json.dumps(handle_rerender_episode(args.episode_id, args.feedback), ensure_ascii=False, indent=2))
     elif args.cmd == "reject-next":
         print(json.dumps(handle_reject_and_next_episode(args.episode_id, args.reason), ensure_ascii=False, indent=2))
+    elif args.cmd == "reject-backup":
+        print(json.dumps(handle_reject_and_use_backup(args.episode_id, args.reason), ensure_ascii=False, indent=2))
     else:
         _run_daemon_loop()
 

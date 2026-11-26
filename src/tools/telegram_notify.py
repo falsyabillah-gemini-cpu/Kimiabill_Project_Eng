@@ -204,11 +204,29 @@ def disable_audit_keyboard(message_id: Optional[int], status_label: str) -> None
         pass
 
 
+def build_audit_inline_keyboard(ep_id: str) -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "✅ Approve & Schedule", "callback_data": f"approve:{ep_id}"},
+                {"text": "🔄 Revise Video", "callback_data": f"revise:{ep_id}"},
+            ],
+            [
+                {"text": "💾 Save to Video Bank", "callback_data": f"save_backup:{ep_id}"},
+                {"text": "❌ Reject Topic", "callback_data": f"reject:{ep_id}"},
+            ],
+            [
+                {"text": "🤖 Delegate to AI", "callback_data": f"ai_audit:{ep_id}"},
+            ],
+        ]
+    }
+
+
 def send_interactive_audit_message(
     entry: dict[str, Any],
     video_path: Optional[Path] = None,
 ) -> Optional[int]:
-    """Send 4-button Interactive Telegram Audit Card (MP4 <45MB else 2x2 collage) + return message_id."""
+    """Send Interactive Telegram Audit Card (MP4 <45MB else 2x2 collage) with Approve/Revise/Save Bank/Reject/AI buttons."""
     token, chat_id = _bot_creds()
     if not token or not chat_id:
         return None
@@ -231,18 +249,7 @@ def send_interactive_audit_message(
         f"• Target Publish: {pub_label}",
     ])[:980]
 
-    keyboard = {
-        "inline_keyboard": [
-            [
-                {"text": "✅ Approve & Schedule", "callback_data": f"approve:{ep_id}"},
-                {"text": "🔄 Revise Video", "callback_data": f"revise:{ep_id}"},
-            ],
-            [
-                {"text": "❌ Reject & Next Topic", "callback_data": f"reject:{ep_id}"},
-                {"text": "🤖 Delegate to AI", "callback_data": f"ai_audit:{ep_id}"},
-            ],
-        ]
-    }
+    keyboard = build_audit_inline_keyboard(ep_id)
 
     # 1. Try sending MP4 directly (< 45 MB)
     if video_path and video_path.exists() and (video_path.stat().st_size / (1024 * 1024)) < 45.0:

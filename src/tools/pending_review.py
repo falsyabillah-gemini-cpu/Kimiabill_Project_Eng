@@ -86,6 +86,7 @@ def upsert_pending_review(entry: dict[str, Any]) -> dict[str, Any]:
         "tts_engine": entry.get("tts_engine") or existing.get("tts_engine") or "Edge-TTS",
         "revision_count": int(entry.get("revision_count", existing.get("revision_count", 0)) or 0),
         "qa_summary": entry.get("qa_summary") or existing.get("qa_summary") or "",
+        "pinned_comment": entry.get("pinned_comment", existing.get("pinned_comment", "")),
         "duration_sec": entry.get("duration_sec") or existing.get("duration_sec") or 0.0,
         "target_publish_iso": entry.get("target_publish_iso") or existing.get("target_publish_iso") or compute_target_publish_iso(entry.get("slot") or "slot_2100"),
         "telegram_message_id": entry.get("telegram_message_id", existing.get("telegram_message_id")),
