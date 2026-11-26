@@ -87,7 +87,7 @@ jobs:
 
       - name: Install Lightweight Deps (Reminder)
         if: ${{ steps.plan.outputs.skip != 'true' && steps.plan.outputs.action == 'remind' }}
-        run: pip install -q pydantic pyyaml requests python-dotenv
+        run: pip install -q -r requirements.txt
 
       - name: Install FFmpeg & Full Dependencies (AI Fallback Audit)
         if: ${{ steps.plan.outputs.skip != 'true' && steps.plan.outputs.action != 'remind' }}
