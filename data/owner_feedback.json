@@ -1,0 +1,43 @@
+{
+  "last_update_id": 0,
+  "items": [
+    {
+      "created_at_wib": "2026-11-26 09:32 WIB",
+      "mode": "next_video",
+      "target_episode_id": "",
+      "text": "Bisakah kamu trigger untuk upload sekarang?"
+    }
+  ],
+  "agent_directives": {
+    "agent_1": [
+      "[OWNER FEEDBACK • 2026-11-26 09:32 WIB]: Bisakah kamu trigger untuk upload sekarang?"
+    ],
+    "agent_2": [
+      "[OWNER FEEDBACK • 2026-11-26 09:32 WIB]: Bisakah kamu trigger untuk upload sekarang?"
+    ],
+    "agent_3": [
+      "[OWNER FEEDBACK • 2026-11-26 09:32 WIB]: Bisakah kamu trigger untuk upload sekarang?"
+    ],
+    "agent_5": [
+      "[OWNER FEEDBACK • 2026-11-26 09:32 WIB]: Bisakah kamu trigger untuk upload sekarang?"
+    ],
+    "agent_6": [],
+    "agent_7": [
+      "Trigger immediate publication of the next video now.",
+      "[OWNER FEEDBACK • 2026-11-26 09:32 WIB]: Bisakah kamu trigger untuk upload sekarang?"
+    ],
+    "agent_8": [
+      "[OWNER FEEDBACK • 2026-11-26 09:32 WIB]: Bisakah kamu trigger untuk upload sekarang?"
+    ]
+  },
+  "runtime_overrides": {
+    "force_sfx_every_transition": true,
+    "force_sfx_every_animation": true,
+    "sfx_gain_db_delta": 0.0,
+    "bgm_gain_db_delta": 0.0,
+    "voice_speed_delta_pct": 0,
+    "subtitle_scale_delta": 0.0,
+    "visual_style_bias": "",
+    "target_duration_sec": null
+  }
+}
