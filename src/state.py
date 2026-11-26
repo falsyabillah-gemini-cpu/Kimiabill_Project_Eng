@@ -50,20 +50,26 @@ class Agent2Output(BaseModel):
 
 class MechanismVisual(BaseModel):
     kind: Literal[
+        "magnetic_induction",
+        "circuit_signal",
+        "optical_emission",
+        "phase_thermal",
+        "membrane_transport",
+        "crystal_lattice",
         "electron_transfer",
         "polymer_crosslink",
         "molecular_reaction",
         "receptor_binding",
         "force_wave",
         "math_geometry",
-    ] = "electron_transfer"
+    ] = "magnetic_induction"
     title: str = Field(
         default="HOW IT WORKS",
-        description="Short English simulation title, e.g. 'INDUCTION COIL', 'ANTI-NOISE WAVE', or 'ELECTRON FLOW'",
+        description="Short English simulation title, e.g. 'EDDY CURRENT COIL', 'ANTI-NOISE WAVE', or 'OLED SUBPIXELS'",
     )
     actor_a: str = Field(
         default="Input",
-        description="Short actor/component label (max 14 chars), e.g. 'AC Coil', 'Li+ Ion', 'NFC Tag'",
+        description="Short actor/component label (max 14 chars), e.g. 'Copper Coil', 'Li+ Ion', 'NFC Tag'",
     )
     actor_b: str = Field(
         default="Process",
@@ -76,6 +82,14 @@ class MechanismVisual(BaseModel):
     caption: str = Field(
         default="",
         description="Concise English caption under the animation (max 48 chars)",
+    )
+    preset_id: Optional[str] = Field(
+        default=None,
+        description="Optional matching preset_id from data/mechanism_bank.json",
+    )
+    accent_color: Optional[str] = Field(
+        default=None,
+        description="Optional color theme hint (blue, green, orange, purple, cyan, red, amber)",
     )
 
 
@@ -300,6 +314,34 @@ class NextWeekTopicMapOutput(BaseModel):
     )
 
 
+class MechanismBankPresetProposal(BaseModel):
+    preset_id: str = Field(description="Lowercase snake_case unique preset ID, e.g. 'capacitive_touch_sensing'")
+    label_title: str = Field(description="Concise uppercase English header (<= 28 chars), e.g. 'CAPACITIVE TOUCH GRID'")
+    engine_kind: Literal[
+        "magnetic_induction",
+        "circuit_signal",
+        "optical_emission",
+        "phase_thermal",
+        "membrane_transport",
+        "crystal_lattice",
+        "electron_transfer",
+        "polymer_crosslink",
+        "molecular_reaction",
+        "receptor_binding",
+        "force_wave",
+        "math_geometry",
+    ] = "circuit_signal"
+    accent_color: Literal["blue", "green", "orange", "purple", "cyan", "red", "amber"] = "cyan"
+    trigger_keywords: list[str] = Field(
+        default_factory=list,
+        description="3-6 English everyday sci-tech keywords triggering this preset",
+    )
+    default_actor_a: str = Field(default="Input", description="Short default actor A (<= 14 chars)")
+    default_actor_b: str = Field(default="Mechanism", description="Short default actor B (<= 14 chars)")
+    default_result: str = Field(default="Output", description="Short default result label (<= 20 chars)")
+    rationale: str = Field(default="", description="Brief English reason why this preset expands the Sci-Tech bank")
+
+
 class Agent8WeeklyAuditOutput(BaseModel):
     week_ending: str = Field(description="ISO date YYYY-MM-DD (WIB) of the Sunday audit")
     summary: str = Field(description="Executive summary in English of this week's channel & video performance")
@@ -335,6 +377,10 @@ class Agent8WeeklyAuditOutput(BaseModel):
         default_factory=list,
         description="2-4 concrete instructions for Agent 3 (Script, Hook & Mechanistic Storyboarder) for next week",
     )
+    agent_4_animator_directives: list[str] = Field(
+        default_factory=list,
+        description="2-4 concrete directives for Agent 3 & Agent 4 Animator to improve Sci-Tech mechanistic diagram accuracy & diversity",
+    )
     agent_5_directives: list[str] = Field(
         default_factory=list,
         description="2-4 concrete instructions for Agent 5 (Video QA Auditor) for next week",
@@ -342,6 +388,18 @@ class Agent8WeeklyAuditOutput(BaseModel):
     agent_6_directives: list[str] = Field(
         default_factory=list,
         description="2-3 concrete instructions for Agent 6 (Footage Scout) to reduce wasted screening & find better clips faster",
+    )
+    mechanism_audit_summary: str = Field(
+        default="",
+        description="Critical evaluation of how accurately mechanistic animations matched this week's Sci-Tech topics vs generic repetition",
+    )
+    mechanism_mismatches: list[str] = Field(
+        default_factory=list,
+        description="Specific episodes/scenes where the mechanistic diagram engine felt mismatched or repetitive, plus fixes",
+    )
+    new_mechanism_presets: list[MechanismBankPresetProposal] = Field(
+        default_factory=list,
+        description="1-3 brand-new Sci-Tech preset proposals added automatically to data/mechanism_bank.json",
     )
     workflow_efficiency_summary: str = Field(
         default="",

@@ -1203,39 +1203,97 @@ def _smart_trim(txt: str, max_chars: int) -> str:
     return cut
 
 
+_ACCENT_COLOR_MAP: dict[str, tuple[int, int, int, int]] = {
+    "blue": BLUE,
+    "green": GREEN,
+    "orange": ORANGE,
+    "purple": PURPLE,
+    "cyan": CYAN,
+    "red": RED,
+    "amber": GOLD,
+}
+
+
 def _infer_mechanism_params(seg: TimelineSegment, discipline: str = "gadgets") -> dict[str, str]:
-    """Return structured mechanism parameters from seg.mechanism or smartly infer from narration/badge."""
+    """Return structured Sci-Tech mechanism params from seg.mechanism, mechanism_bank presets, or domain keywords."""
+    from src.tools.mechanism_bank import load_mechanism_bank, resolve_preset_style
+
     if seg.mechanism is not None:
         m = seg.mechanism
+        preset_meta = resolve_preset_style(getattr(m, "preset_id", None))
+        accent = getattr(m, "accent_color", None) or preset_meta.get("accent_color") or ""
         return {
             "kind": m.kind,
-            "title": _smart_trim(m.title or "HOW IT WORKS", 34),
-            "actor_a": _smart_trim(m.actor_a or "Input", 16),
-            "actor_b": _smart_trim(m.actor_b or "Process", 16),
-            "result": _smart_trim(m.result or "Output", 22),
+            "title": _smart_trim(m.title or preset_meta.get("label_title") or "SCI-TECH MECHANISM", 34),
+            "actor_a": _smart_trim(m.actor_a or preset_meta.get("default_actor_a") or "Input", 16),
+            "actor_b": _smart_trim(m.actor_b or preset_meta.get("default_actor_b") or "Process", 16),
+            "result": _smart_trim(m.result or preset_meta.get("default_result") or "Output", 22),
             "caption": _smart_trim(m.caption or "", 54),
+            "accent_color": str(accent).strip().lower(),
         }
 
     import re
     blob = f"{seg.narration} {seg.overlay_badge or ''} {discipline}".lower()
-    if any(k in blob for k in ("polymer", "plastic", "glass", "ceramic", "steel", "foam", "alloy", "coating", "teflon", "material")):
+
+    try:
+        bank = load_mechanism_bank()
+        best_preset: dict | None = None
+        best_hits = 0
+        for pr in bank.get("custom_presets") or []:
+            kws = [str(k).lower() for k in (pr.get("trigger_keywords") or []) if str(k).strip()]
+            hits = sum(1 for k in kws if k in blob)
+            if hits >= 2 and hits > best_hits:
+                best_hits = hits
+                best_preset = pr
+        if best_preset is not None:
+            return {
+                "kind": str(best_preset.get("engine_kind") or "magnetic_induction"),
+                "title": _smart_trim(str(best_preset.get("label_title") or "SCI-TECH MECHANISM"), 34),
+                "actor_a": _smart_trim(str(best_preset.get("default_actor_a") or "Input"), 16),
+                "actor_b": _smart_trim(str(best_preset.get("default_actor_b") or "Process"), 16),
+                "result": _smart_trim(str(best_preset.get("default_result") or "Output"), 22),
+                "caption": _smart_trim(seg.overlay_badge or seg.narration, 50),
+                "accent_color": str(best_preset.get("accent_color") or "").strip().lower(),
+            }
+    except Exception:
+        pass
+
+    if any(k in blob for k in ("induction", "coil", "nfc", "eddy", "magnetic", "stator", "rotor", "wireless charg", "traffic loop")):
+        kind = "magnetic_induction"
+        default_title = "MAGNETIC INDUCTION & COIL"
+    elif any(k in blob for k in ("chip", "microchip", "touchscreen", "capacitive", "face id", "dot projector", "circuit", "sensor", "processor")):
+        kind = "circuit_signal"
+        default_title = "CIRCUIT & SENSOR SIGNAL"
+    elif any(k in blob for k in ("oled", "led", "pixel", "photon", "solar", "ppg", "albedo", "infrared", "laser", "light")):
+        kind = "optical_emission"
+        default_title = "OPTICAL & PHOTON EMISSION"
+    elif any(k in blob for k in ("expansion", "fridge", "refrigerant", "convection", "air fryer", "thermal", "heat", "boil", "steam", "temperature")):
+        kind = "phase_thermal"
+        default_title = "THERMAL & PHASE PHYSICS"
+    elif any(k in blob for k in ("filter", "activated carbon", "pore", "ceramic", "solid state", "solid-state", "separator", "bleed hole", "osmosis")):
+        kind = "membrane_transport"
+        default_title = "SELECTIVE BARRIER & PORES"
+    elif any(k in blob for k in ("gorilla", "potassium", "tempered", "chromium", "lattice", "crystal", "stainless", "alloy")):
+        kind = "crystal_lattice"
+        default_title = "ATOMIC LATTICE ARMOR"
+    elif any(k in blob for k in ("polymer", "plastic", "foam", "crosslink", "stretch", "bend", "fiber", "memory foam")):
         kind = "polymer_crosslink"
-        default_title = "MATERIAL STRUCTURE"
-    elif any(k in blob for k in ("electron", "battery", "ion", "charge", "voltage", "current", "coil", "nfc", "oled", "solar", "chip")):
+        default_title = "POLYMER CHAIN MECHANICS"
+    elif any(k in blob for k in ("electron", "battery", "ion", "charge", "voltage", "current", "corona", "redox")):
         kind = "electron_transfer"
         default_title = "ELECTRON & CHARGE FLOW"
-    elif any(k in blob for k in ("sensor", "blood", "brain", "eye", "melatonin", "filter", "carbon", "biometric")):
+    elif any(k in blob for k in ("melanopsin", "brain", "receptor", "nerve", "ear", "vestibular", "enzyme")):
         kind = "receptor_binding"
-        default_title = "SENSOR & BIO INTERACTION"
-    elif any(k in blob for k in ("wave", "sound", "noise", "frequency", "microwave", "heat", "pressure", "wind", "blade", "turbine", "infrared")):
+        default_title = "BIOSENSOR & RECEPTOR"
+    elif any(k in blob for k in ("wave", "sound", "noise", "frequency", "microwave", "acoustic", "wind", "blade", "turbine")):
         kind = "force_wave"
-        default_title = "ENERGY & WAVE MECHANISM"
-    elif any(k in blob for k in ("pixel", "grid", "array", "angle", "geometry", "curve", "pattern", "3d", "dots")):
+        default_title = "WAVE & FORCE MECHANICS"
+    elif any(k in blob for k in ("80%", "curve", "ratio", "exponential", "graph", "computational", "algorithm")):
         kind = "math_geometry"
-        default_title = "GEOMETRY & SIGNAL PATTERN"
+        default_title = "SYSTEM CURVE & SCALING"
     else:
-        kind = "electron_transfer"
-        default_title = "TECH MECHANISM"
+        kind = "molecular_reaction"
+        default_title = "SURFACE & TECH REACTION"
 
     badge = (seg.overlay_badge or "").strip()
     parts = [p.strip() for p in re.split(r"\s*(?:→|->|=>|=|\+)\s*", badge) if p.strip()]
@@ -1249,6 +1307,7 @@ def _infer_mechanism_params(seg: TimelineSegment, discipline: str = "gadgets") -
         "actor_b": actor_b,
         "result": result,
         "caption": _smart_trim(badge, 54) if badge else _smart_trim(seg.narration, 50),
+        "accent_color": "",
     }
 
 
@@ -1598,6 +1657,261 @@ def _anim_math_geometry(
     _draw_label_pill(draw, cx, y1 - 22, f"RESULT: {params['result']}", fonts["tiny_bold"], bg=PURPLE, fg=WHITE, max_w=(x1 - x0) - 40)
 
 
+def _anim_magnetic_induction(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate copper coil windings pulsing magnetic flux rings & inducing swirling eddy currents."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = y0 + 118
+    prog = clamp(t / max(dur * 0.80, 1.6))
+
+    left_x = x0 + 185
+    right_x = x1 - 185
+    _draw_label_pill(draw, left_x, y0 + 22, params["actor_a"], fonts["micro_bold"], bg=ORANGE, fg=WHITE, max_w=260)
+    _draw_label_pill(draw, right_x, y0 + 22, params["actor_b"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=260)
+
+    # Copper solenoid coil loops on the left
+    for i in range(4):
+        ox = left_x - 36 + i * 24
+        draw.ellipse([ox - 24, cy - 42, ox + 24, cy + 42], outline=INK, width=7)
+        draw.ellipse([ox - 24, cy - 42, ox + 24, cy + 42], outline=ORANGE, width=4)
+
+    # Animated pulsing cyan magnetic flux arcs radiating toward right target
+    for k in range(3):
+        phase = (t * 1.15 + k * 0.33) % 1.0
+        rx = int(38 + phase * 110)
+        ry = int(26 + phase * 50)
+        arc_x = int(left_x + 48 + phase * (right_x - left_x - 96))
+        draw.arc([arc_x - rx // 2, cy - ry, arc_x + rx // 2, cy + ry], start=290, end=70, fill=CYAN, width=5)
+
+    # Metal/NFC target plate on the right + swirling induced eddy current rings
+    draw.rounded_rectangle([right_x - 80, cy - 52, right_x + 80, cy + 52], radius=18, fill=IRON_GRAY, outline=INK, width=5)
+    swirl_r = 26 + int(8 * math.sin(t * 7.0))
+    draw.ellipse([right_x - swirl_r, cy - swirl_r, right_x + swirl_r, cy + swirl_r], outline=YELLOW, width=5)
+    # Rotating induced charge dot around swirl ring
+    ang = t * 6.5
+    ex = int(right_x + math.cos(ang) * swirl_r)
+    ey = int(cy + math.sin(ang) * swirl_r)
+    draw.ellipse([ex - 10, ey - 10, ex + 10, ey + 10], fill=GOLD, outline=INK, width=3)
+    draw.text((right_x, cy), "e⁻" if prog < 0.55 else "FLUX", font=fonts["micro_bold"], fill=WHITE, anchor="mm")
+
+    _draw_label_pill(
+        draw, cx, y1 - 22, f"INDUCED: {params['result']}", fonts["tiny_bold"],
+        bg=ORANGE if prog > 0.35 else CARD_DARK, fg=WHITE, max_w=(x1 - x0) - 40,
+    )
+
+
+def _anim_circuit_signal(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate IC microchip traces & capacitive/optical sensor grid nodes firing live digital pulses."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = y0 + 120
+    prog = clamp(t / max(dur * 0.80, 1.6))
+
+    _draw_label_pill(draw, x0 + 175, y0 + 22, params["actor_a"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=260)
+    _draw_label_pill(draw, x1 - 175, y0 + 22, params["actor_b"], fonts["micro_bold"], bg=PURPLE, fg=WHITE, max_w=260)
+
+    # Central microchip package with copper pins
+    chip_sz = 46
+    for py_off in (-28, 0, 28):
+        draw.line([(cx - 190, cy + py_off), (cx + 190, cy + py_off)], fill=INK, width=6)
+        draw.line([(cx - 190, cy + py_off), (cx + 190, cy + py_off)], fill=(56, 189, 248, 255), width=3)
+    draw.rounded_rectangle([cx - chip_sz, cy - chip_sz, cx + chip_sz, cy + chip_sz], radius=14, fill=CARD_DARK, outline=CYAN, width=5)
+    draw.text((cx, cy), "CHIP", font=fonts["micro_bold"], fill=YELLOW, anchor="mm")
+
+    # Sensor grid dots on left & traveling signal pulses into IC -> right logic nodes
+    for row in (-28, 0, 28):
+        draw.ellipse([x0 + 150, cy + row - 12, x0 + 174, cy + row + 12], fill=CYAN, outline=INK, width=3)
+        draw.ellipse([x1 - 174, cy + row - 12, x1 - 150, cy + row + 12], fill=GREEN, outline=INK, width=3)
+        u = (t * 0.95 + abs(row) * 0.01) % 1.0
+        px = int((cx - 180) + u * 360)
+        draw.ellipse([px - 9, cy + row - 9, px + 9, cy + row + 9], fill=YELLOW, outline=INK, width=2)
+
+    _draw_label_pill(
+        draw, cx, y1 - 22, f"SIGNAL: {params['result']}", fonts["tiny_bold"],
+        bg=BLUE if prog < 0.5 else (18, 132, 74, 255), fg=WHITE, max_w=(x1 - x0) - 40,
+    )
+
+
+def _anim_optical_emission(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate LED/photon diode emitter firing animated light waves toward a sensor/surface target."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = y0 + 120
+    prog = clamp(t / max(dur * 0.80, 1.6))
+
+    emit_x = x0 + 165
+    targ_x = x1 - 165
+    _draw_label_pill(draw, emit_x, y0 + 22, params["actor_a"], fonts["micro_bold"], bg=GREEN, fg=WHITE, max_w=260)
+    _draw_label_pill(draw, targ_x, y0 + 22, params["actor_b"], fonts["micro_bold"], bg=RED, fg=WHITE, max_w=260)
+
+    # LED / Photon emitter dome on left
+    draw.ellipse([emit_x - 36, cy - 36, emit_x + 36, cy + 36], fill=GREEN, outline=INK, width=5)
+    draw.text((emit_x, cy), "LED", font=fonts["micro_bold"], fill=WHITE, anchor="mm")
+
+    # Target sensor / silicon cell on right
+    draw.rounded_rectangle([targ_x - 44, cy - 48, targ_x + 44, cy + 48], radius=16, fill=CARD_DARK, outline=YELLOW, width=5)
+    draw.text((targ_x, cy), "TARGET", font=fonts["micro_bold"], fill=YELLOW, anchor="mm")
+
+    # Photon packets & green/cyan sine beam traveling emit_x -> targ_x + reflected signal wave
+    for k in range(4):
+        u = (t * 0.9 + k * 0.25) % 1.0
+        px = int(emit_x + 44 + u * (targ_x - emit_x - 94))
+        py = cy + int(math.sin(u * 4 * math.pi - t * 9.0) * 18)
+        col = YELLOW if k % 2 == 0 else CYAN
+        draw.ellipse([px - 11, py - 11, px + 11, py + 11], fill=col, outline=INK, width=3)
+
+    _draw_label_pill(
+        draw, cx, y1 - 22, f"OPTICS: {params['result']}", fonts["tiny_bold"],
+        bg=GREEN if prog > 0.35 else PURPLE, fg=WHITE, max_w=(x1 - x0) - 40,
+    )
+
+
+def _anim_phase_thermal(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate live thermometer alongside particles expanding/convecting with thermal energy."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = y0 + 122
+    prog = ease_out_cubic(clamp(t / max(dur * 0.80, 1.6)))
+
+    _draw_label_pill(draw, x0 + 175, y0 + 22, params["actor_a"], fonts["micro_bold"], bg=RED, fg=WHITE, max_w=260)
+    _draw_label_pill(draw, x1 - 175, y0 + 22, params["actor_b"], fonts["micro_bold"], bg=ORANGE, fg=WHITE, max_w=260)
+
+    # Compact live thermometer on left
+    tx = x0 + 135
+    draw.rounded_rectangle([tx - 12, cy - 64, tx + 12, cy + 44], radius=10, fill=(235, 240, 248, 255), outline=INK, width=4)
+    draw.ellipse([tx - 24, cy + 28, tx + 24, cy + 68], fill=RED, outline=INK, width=4)
+    fill_h = int(18 + prog * 74)
+    draw.rectangle([tx - 7, cy + 38 - fill_h, tx + 7, cy + 38], fill=RED)
+
+    # Particles spacing & rising convectively inside container
+    c_x0, c_y0, c_x1, c_y1 = cx - 95, cy - 62, x1 - 80, cy + 62
+    draw.rounded_rectangle([c_x0, c_y0, c_x1, c_y1], radius=20, fill=(255, 247, 237, 235), outline=ORANGE, width=4)
+    for idx in range(9):
+        col_i = idx % 3
+        row_i = idx // 3
+        spread = 1.0 + prog * 0.48
+        px = int((c_x0 + c_x1) // 2 + (col_i - 1) * 78 * spread + math.sin(t * 7 + idx) * (6 + 10 * prog))
+        py = int((c_y0 + c_y1) // 2 + (row_i - 1) * 28 * spread + math.cos(t * 8 + idx) * (4 + 8 * prog))
+        pcol = RED if prog > 0.6 else ORANGE
+        draw.ellipse([px - 12, py - 12, px + 12, py + 12], fill=pcol, outline=INK, width=3)
+
+    _draw_label_pill(
+        draw, cx, y1 - 22, f"THERMAL: {params['result']}", fonts["tiny_bold"],
+        bg=RED if prog > 0.45 else ORANGE, fg=WHITE, max_w=(x1 - x0) - 40,
+    )
+
+
+def _anim_membrane_transport(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate porous filter/solid ceramic separator blocking big impurities while letting clean ions/H2O pass."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = y0 + 120
+
+    _draw_label_pill(draw, x0 + 170, y0 + 22, params["actor_a"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=260)
+    _draw_label_pill(draw, x1 - 170, y0 + 22, params["actor_b"], fonts["micro_bold"], bg=GREEN, fg=WHITE, max_w=260)
+
+    # Central selective porous barrier segments
+    for row_i in range(6):
+        ry = cy - 60 + row_i * 24
+        if row_i in (1, 4):
+            continue  # clean micro-channels!
+        draw.rounded_rectangle([cx - 18, ry - 8, cx + 18, ry + 8], radius=6, fill=IRON_GRAY, outline=INK, width=3)
+
+    # Small good particles passing cleanly through pores left -> right
+    channel_ys = (cy - 60 + 24, cy - 60 + 96)
+    for k in range(5):
+        u = (t * 0.72 + k * 0.2) % 1.0
+        px = int((x0 + 100) + u * ((x1 - 100) - (x0 + 100)))
+        py = channel_ys[k % 2] + int(math.sin(t * 6 + k) * 4)
+        draw.ellipse([px - 11, py - 11, px + 11, py + 11], fill=CYAN, outline=INK, width=3)
+
+    # Large blocked contaminants bouncing off barrier on left side
+    for k in range(3):
+        bx_off = int(abs(math.sin(t * 2.5 + k)) * 34)
+        bx = cx - 42 - bx_off
+        by = cy - 32 + k * 34
+        draw.ellipse([bx - 16, by - 16, bx + 16, by + 16], fill=RED, outline=INK, width=3)
+        draw.text((bx, by), "✖", font=fonts["micro_bold"], fill=WHITE, anchor="mm")
+
+    _draw_label_pill(draw, cx, y1 - 22, f"FILTERED: {params['result']}", fonts["tiny_bold"], bg=BLUE, fg=WHITE, max_w=(x1 - x0) - 40)
+
+
+def _anim_crystal_lattice(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Animate ordered atomic crystal lattice locking reinforcing armor ions into compression pockets."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = y0 + 122
+    prog = clamp(t / max(dur * 0.80, 1.6))
+
+    _draw_label_pill(draw, x0 + 170, y0 + 22, params["actor_a"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=260)
+    _draw_label_pill(draw, x1 - 170, y0 + 22, params["actor_b"], fonts["micro_bold"], bg=CYAN, fg=INK, max_w=260)
+
+    offsets = [
+        (0, 0), (-74, 0), (74, 0),
+        (-37, -46), (37, -46), (-37, 46), (37, 46),
+        (-111, -46), (111, -46), (-111, 46), (111, 46),
+    ]
+    visible_n = max(1, int(clamp(prog * 1.15) * len(offsets)))
+    nodes = [(cx + ox, cy + oy) for ox, oy in offsets[:visible_n]]
+
+    for i in range(len(nodes)):
+        for j in range(i + 1, len(nodes)):
+            d = math.hypot(nodes[i][0] - nodes[j][0], nodes[i][1] - nodes[j][1])
+            if 20 < d <= 86:
+                draw.line([nodes[i], nodes[j]], fill=INK, width=7)
+                draw.line([nodes[i], nodes[j]], fill=CYAN, width=4)
+
+    for idx, (nx, ny) in enumerate(nodes):
+        pulse = 2 if (int(t * 6) + idx) % 4 == 0 else 0
+        col = GOLD if idx == 0 else (BLUE if idx % 2 == 1 else CYAN)
+        r = 16 if idx == 0 else 13
+        draw.ellipse([nx - r - pulse, ny - r - pulse, nx + r + pulse, ny + r + pulse], fill=col, outline=INK, width=3)
+
+    _draw_label_pill(draw, cx, y1 - 22, f"LATTICE: {params['result']}", fonts["tiny_bold"], bg=BLUE, fg=WHITE, max_w=(x1 - x0) - 40)
+
+
 def _draw_mechanistic_diagram_card(
     draw: ImageDraw.ImageDraw,
     seg: TimelineSegment,
@@ -1606,7 +1920,7 @@ def _draw_mechanistic_diagram_card(
     fonts: dict,
     discipline: str = "gadgets",
 ) -> None:
-    """Draw a genuine 30fps comic-science mechanistic visual simulation (atoms, electrons, chains, receptors, waves, graphs)."""
+    """Draw a genuine 30fps comic-science mechanistic visual simulation across 12 Sci-Tech engines + dynamic bank presets."""
     p = ease_out_back(local_t / 0.35)
     if p <= 0.05:
         return
@@ -1614,11 +1928,13 @@ def _draw_mechanistic_diagram_card(
     card_x0, card_y0, card_x1, card_y1 = 56, 910, 1024, 1275
     cy = (card_y0 + card_y1) // 2
     half_h = int(((card_y1 - card_y0) // 2) * min(p, 1.02))
+    params = _infer_mechanism_params(seg, discipline=discipline)
+    accent_rgba = _ACCENT_COLOR_MAP.get(params.get("accent_color") or "", INK)
     draw_comic_box(
         draw,
         (card_x0, cy - half_h, card_x1, cy + half_h),
         fill=CARD_BG,
-        outline=INK,
+        outline=accent_rgba if accent_rgba != INK else INK,
         radius=28,
         border_w=6,
         shadow_offset=10,
@@ -1626,20 +1942,31 @@ def _draw_mechanistic_diagram_card(
     if p < 0.65:
         return
 
-    params = _infer_mechanism_params(seg, discipline=discipline)
-    # Header bar inside simulation box
+    header_fg = _ACCENT_COLOR_MAP.get(params.get("accent_color") or "", YELLOW)
     draw.rounded_rectangle([card_x0 + 18, card_y0 + 14, card_x1 - 18, card_y0 + 62], radius=16, fill=CARD_DARK)
     draw.text(
         ((card_x0 + card_x1) // 2, card_y0 + 38),
         f"MECHANISM SIMULATION • {params['title'].upper()}",
         font=fonts["tiny_bold"],
-        fill=YELLOW,
+        fill=header_fg,
         anchor="mm",
     )
 
     sim_box = (card_x0 + 18, card_y0 + 68, card_x1 - 18, card_y1 - 14)
     kind = params["kind"]
-    if kind == "polymer_crosslink":
+    if kind == "magnetic_induction":
+        _anim_magnetic_induction(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "circuit_signal":
+        _anim_circuit_signal(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "optical_emission":
+        _anim_optical_emission(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "phase_thermal":
+        _anim_phase_thermal(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "membrane_transport":
+        _anim_membrane_transport(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "crystal_lattice":
+        _anim_crystal_lattice(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "polymer_crosslink":
         _anim_polymer_crosslink(draw, sim_box, local_t, seg.duration_sec, params, fonts)
     elif kind == "electron_transfer":
         _anim_electron_transfer(draw, sim_box, local_t, seg.duration_sec, params, fonts)

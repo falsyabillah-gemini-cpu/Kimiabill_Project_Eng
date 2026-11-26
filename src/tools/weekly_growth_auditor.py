@@ -141,6 +141,7 @@ def record_published_episode(
     revisions_used: int = 0,
     topic_attempts_used: int = 1,
     production_seconds: Optional[float] = None,
+    mechanisms_used: Optional[list[dict[str, Any]]] = None,
 ) -> None:
     """Persist each published episode + 0-token efficiency telemetry into data/published_history.json."""
     HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -174,6 +175,7 @@ def record_published_episode(
         "production_seconds": round(production_seconds, 1) if production_seconds is not None else None,
         "publish_mode": os.environ.get("PUBLISH_MODE", "public"),
         "agent_models": agent_models,
+        "mechanisms_used": mechanisms_used or [],
     }
     items = [x for x in items if x.get("episode_id") != episode_id]
     items.append(record)
@@ -184,6 +186,58 @@ def record_published_episode(
         StudioMemory(BASE_DIR).upsert_episode_analytics([record])
     except Exception:
         pass
+
+
+def _collect_weekly_mechanism_audit_data(recent_history: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize which mechanistic visual engines & presets ran across recent episodes (0 LLM tokens)."""
+    engine_counts: dict[str, int] = {}
+    preset_counts: dict[str, int] = {}
+    episodes_with_mechanisms: list[dict[str, Any]] = []
+
+    for item in recent_history[-21:]:
+        ep_id = str(item.get("episode_id") or "")
+        mechs = item.get("mechanisms_used") or []
+        if not mechs:
+            # Fallback to archived agent3_script handoff if published before mechanisms_used tracking
+            handoff = BASE_DIR / "workspace" / ep_id / "handoffs" / "agent3_script.json"
+            if not handoff.exists():
+                handoff = BASE_DIR / "artifacts" / "handoffs" / "agent3_script.json"
+            if handoff.exists():
+                try:
+                    data = json.loads(handoff.read_text(encoding="utf-8"))
+                    for sc in data.get("scenes") or []:
+                        m = sc.get("mechanism")
+                        if isinstance(m, dict) and m.get("kind"):
+                            mechs.append({
+                                "scene_id": sc.get("scene_id"),
+                                "kind": m.get("kind"),
+                                "preset_id": m.get("preset_id"),
+                                "accent_color": m.get("accent_color"),
+                                "title": m.get("title"),
+                            })
+                except Exception:
+                    pass
+        if mechs:
+            for m in mechs:
+                k = str(m.get("kind") or "unknown")
+                engine_counts[k] = engine_counts.get(k, 0) + 1
+                pid = m.get("preset_id")
+                if pid:
+                    preset_counts[str(pid)] = preset_counts.get(str(pid), 0) + 1
+            episodes_with_mechanisms.append({
+                "episode_id": ep_id,
+                "title": item.get("title"),
+                "discipline": item.get("discipline"),
+                "mechanisms": mechs[:6],
+            })
+
+    return {
+        "episodes_checked": len(recent_history[-21:]),
+        "episodes_with_mechanisms_count": len(episodes_with_mechanisms),
+        "engine_usage_counts": engine_counts,
+        "preset_usage_counts": preset_counts,
+        "recent_episode_mechanisms": episodes_with_mechanisms[-10:],
+    }
 
 
 def load_latest_agent_directives() -> dict[str, Any]:
@@ -592,8 +646,24 @@ def _format_audit_markdown(
     _sec("Upgrade Directives -> Agent 1 (Trend & Ideation)", audit.agent_1_directives)
     _sec("Upgrade Directives -> Agent 2 (Editorial & Hook)", audit.agent_2_directives)
     _sec("Upgrade Directives -> Agent 3 (Script & Mechanistic Visuals)", audit.agent_3_directives)
+    if getattr(audit, "agent_4_animator_directives", None):
+        _sec("Upgrade Directives -> Agent 4 (Mechanistic Animator)", audit.agent_4_animator_directives)
     _sec("Upgrade Directives -> Agent 5 (Video QA Auditor)", audit.agent_5_directives)
     _sec("Upgrade Directives -> Agent 6 (Real Footage Scout)", audit.agent_6_directives)
+    if getattr(audit, "mechanism_audit_summary", None) or getattr(audit, "new_mechanism_presets", None):
+        lines.append("")
+        lines.append("## Mechanistic Animation Audit & Auto-Bank Expansion")
+        if getattr(audit, "mechanism_audit_summary", None):
+            lines.append(f"- **Audit Summary:** {audit.mechanism_audit_summary}")
+        if getattr(audit, "mechanism_mismatches", None):
+            for mm in audit.mechanism_mismatches:
+                lines.append(f"- **Mismatch Fixed:** {mm}")
+        if getattr(audit, "new_mechanism_presets", None):
+            for np in audit.new_mechanism_presets:
+                lines.append(
+                    f"- **Auto-Added Preset `{np.preset_id}`** (`{np.engine_kind}`, accent=`{np.accent_color}`): "
+                    f"{np.rationale or np.label_title} | Keywords: {', '.join(np.trigger_keywords[:4])}"
+                )
     if getattr(audit, "tech_radar_weekend_directives", None):
         _sec("Weekend TECH_RADAR Directives", audit.tech_radar_weekend_directives)
     if getattr(audit, "audience_requests", None):
@@ -1122,6 +1192,14 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
         "all_produced_titles": [t["title"] for t in topic_landscape["all_topics"][:40]],
     }
 
+    from src.tools.mechanism_bank import (
+        append_mechanism_presets_from_audit,
+        format_mechanism_catalog_for_agent3,
+    )
+
+    mechanism_audit_input = _collect_weekly_mechanism_audit_data(history)
+    current_mechanism_bank = format_mechanism_catalog_for_agent3()
+
     brand_name = get_brand_name()
     gdrive_root = get_gdrive_root()
     audit: Optional[Agent8WeeklyAuditOutput] = None
@@ -1134,7 +1212,7 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
                 system_prompt=(
                     f"You are Agent 8 (Chief Weekly System, Engagement & Workflow Efficiency Auditor) for {brand_name}, an international "
                     "English-language Everyday Science & Applied Technology YouTube Shorts studio (gadgets, engineering, materials, energy, biotech). "
-                    "Perform FIVE deep audits in clear English from this week's data:\n"
+                    "Perform SIX deep audits in clear English from this week's data:\n"
                     "1. SOCIAL MEDIA ENGAGEMENT & MONETIZATION AUDIT: Analyze views, likes, comments, retention %, avg view duration, "
                     "QA scores, hooks, topics, and durations. State clearly in `summary` progress toward YPP Shorts monetization.\n"
                     "2. WORKFLOW & TOKEN EFFICIENCY AUDIT: Analyze production_seconds, revisions_used, and topic_attempts_used "
@@ -1146,6 +1224,13 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
                     "(EVERYDAY_TECH vs TECH_RADAR) in `audience_geo_insights`.\n"
                     "5. TOPIC PERFORMANCE DIAGNOSIS: Inspect `topic_landscape` across all 5 pillars. Populate `topic_performance_highlights` (3-5 crisp "
                     "findings naming top vs bottom topics and why). Leave `next_week_topic_map` as `[]` — Agent 1 drafts it next.\n"
+                    "6. MECHANISTIC ANIMATION MATCH & AUTO-BANK EXPANSION: Inspect `mechanism_audit_input` and `current_mechanism_bank`! "
+                    "Did Agent 3 choose the most accurate Sci-Tech engine among the 12 built-ins (`magnetic_induction`, `circuit_signal`, "
+                    "`optical_emission`, `phase_thermal`, `membrane_transport`, `crystal_lattice`, `electron_transfer`, `polymer_crosslink`, "
+                    "`molecular_reaction`, `receptor_binding`, `force_wave`, `math_geometry`), or repeat the same visual? "
+                    "Populate `mechanism_audit_summary`, `mechanism_mismatches`, and `agent_4_animator_directives` (2-3 actionable visual upgrade directives). "
+                    "ALSO propose 1-3 new reusable Everyday Sci-Tech presets in `new_mechanism_presets` (unique snake_case `preset_id`, `label_title`, valid `engine_kind`, "
+                    "meaningful `trigger_keywords`, cohesive `accent_color`, `default_actor_a`, `default_actor_b`, `default_result`, `rationale`) so `data/mechanism_bank.json` keeps growing.\n"
                     "Also populate `recommended_weekend_hours_wib` with 2 optimal HH:MM WIB upload times (one around 03:00-06:00 WIB and one around 20:00-23:00 WIB) "
                     "and populate `tech_radar_weekend_directives` with 2-3 everyday-relatable sci-tech breakthrough angles for Weekend TECH_RADAR."
                 ),
@@ -1158,6 +1243,8 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
                     "topic_landscape": topic_landscape_brief,
                     "countries_summary": countries_summary,
                     "cumulative_milestone_stats": milestone_stats,
+                    "mechanism_audit_input": mechanism_audit_input,
+                    "current_mechanism_bank": current_mechanism_bank,
                     "viewer_comments": viewer_comments[:60],
                     "existing_requests_queue": existing_requests[-25:],
                     "previous_week_directives": prev_directives,
@@ -1201,9 +1288,19 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             flow_clip_prompts=_build_default_flow_starter_prompts([], count=5),
             agent_1_directives=["Prioritize underrepresented everyday sci-tech pillars and avoid duplicate titles."],
             agent_2_directives=["Keep 3-6 word zero-spoiler hooks anchored in recognizable daily-life objects."],
-            agent_3_directives=["Maintain 38-48s brisk pacing on weekdays and 45-55s TECH_RADAR depth on weekends."],
+            agent_3_directives=["Maintain 38-48s brisk pacing on weekdays and 45-55s TECH_RADAR depth on weekends; select distinct Sci-Tech engines from mechanism_bank_catalog."],
+            agent_4_animator_directives=[
+                "Keep mechanistic cards strictly inside the upper/mid safe box above captions (y<=1310).",
+                "Rotate Sci-Tech engines (magnetic_induction, optical_emission, phase_thermal, crystal_lattice, circuit_signal) so consecutive scenes stay visually fresh.",
+            ],
             agent_5_directives=["Reject off-topic B-roll early and verify clean legible subtitles."],
             agent_6_directives=["Prefer sharp macro tech/lab clips and mechanistic circuit overlays."],
+            mechanism_audit_summary=(
+                f"Tracked {mechanism_audit_input.get('episodes_with_mechanisms_count', 0)} recent episodes across "
+                f"{len(mechanism_audit_input.get('engine_usage_counts') or {})} Sci-Tech animation engines."
+            ),
+            mechanism_mismatches=[],
+            new_mechanism_presets=[],
             workflow_efficiency_summary="Generated via 0-token deterministic telemetry fallback after Gemini rate-limit.",
             token_and_cost_optimizations=["Keep cron offsets staggered from sibling channel to preserve Gemini quota."],
             next_week_experiments=["Test faster 1.5s physical hook opening vs question hook on weekday slots."],
@@ -1215,6 +1312,10 @@ def run_agent_8_weekly_audit() -> Agent8WeeklyAuditOutput:
             audience_geo_insights=f"Top countries summary: {countries_summary.get('top_countries', []) or 'Pending Analytics threshold'}",
         )
         print("[agent8] Built 0-token fallback audit from live YouTube stats & telemetry.")
+
+    added_presets = append_mechanism_presets_from_audit(audit.new_mechanism_presets, today_wib)
+    if added_presets:
+        print(f"[agent8->mech_bank] Added {len(added_presets)} new Sci-Tech preset(s) into data/mechanism_bank.json!")
 
     queued_new = queue_audience_requests(audit.audience_requests, today_wib)
     if queued_new:

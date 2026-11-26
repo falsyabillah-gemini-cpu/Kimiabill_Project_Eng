@@ -78,7 +78,7 @@ jobs:
         run: |
           git config user.name "Everyday SciTech Studio Bot"
           git config user.email "bot@studio.local"
-          for f in data/weekly_agent_directives.json data/weekly_audits data/audience_requests.json data/memory.db data/STUDIO_MASTER_DATABASE.csv data/published_history.json data/FLOW_PROMPTS_LATEST.txt; do
+          for f in data/weekly_agent_directives.json data/mechanism_bank.json data/weekly_audits data/audience_requests.json data/memory.db data/STUDIO_MASTER_DATABASE.csv data/published_history.json data/FLOW_PROMPTS_LATEST.txt; do
             [ -e "$f" ] && git add "$f" || true
           done
           if ! git diff --cached --quiet; then

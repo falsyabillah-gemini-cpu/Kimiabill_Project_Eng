@@ -19,6 +19,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
+from src.brand_config import get_brand_name
 from src.state import Agent8WeeklyAuditOutput
 
 A4_W, A4_H = 1240, 1754  # A4 @ 150 DPI
@@ -247,7 +248,7 @@ def generate_weekly_audit_pdf(
     d2 = ImageDraw.Draw(p2)
     d2.rectangle([0, 0, A4_W, 110], fill=NAVY)
     d2.text((56, 34), "RENCANA PERBAIKAN & UPGRADE OTOMATIS SELURUH AGENT", font=fonts["h2"], fill=YELLOW)
-    d2.text((56, 72), f"Diterapkan otomatis mulai minggu berikutnya  •  Kimiabill Studio ({audit.week_ending})", font=fonts["small"], fill=(203, 213, 225))
+    d2.text((56, 72), f"Diterapkan otomatis mulai minggu berikutnya  •  {get_brand_name()} ({audit.week_ending})", font=fonts["small"], fill=(203, 213, 225))
 
     # Top Patterns vs Weaknesses (2 columns)
     col_w = 550
@@ -287,29 +288,30 @@ def generate_weekly_audit_pdf(
         ty += 6
 
     # Cross-Agent Directives Card
-    _card(d2, (56, 744, A4_W - 56, 1435))
-    d2.text((82, 764), "INSTRUKSI UPGRADE OTOMATIS KE SELURUH AGENT", font=fonts["h2"], fill=NAVY)
+    _card(d2, (56, 744, A4_W - 56, 1442))
+    d2.text((82, 762), "INSTRUKSI UPGRADE OTOMATIS KE SELURUH AGENT", font=fonts["h2"], fill=NAVY)
     agent_blocks = [
         ("AGENT 1 (Trend & Ideasi)", BLUE, audit.agent_1_directives),
         ("AGENT 2 (Auditor Hook)", PURPLE, audit.agent_2_directives),
         ("AGENT 3 (Skrip & Animasi Mekanistik)", CYAN, audit.agent_3_directives),
+        ("AGENT 4 (Animator Mekanistik)", GREEN, getattr(audit, "agent_4_animator_directives", [])),
         ("AGENT 5 (Video QA Auditor)", RED, audit.agent_5_directives),
         ("AGENT 6 (Pencari Footage Real)", AMBER, audit.agent_6_directives),
     ]
-    ay = 812
+    ay = 804
     for label, col, items in agent_blocks:
-        if ay > 1390:
+        if ay > 1406:
             break
-        d2.rounded_rectangle([82, ay, 475, ay + 30], radius=8, fill=col)
-        d2.text((96, ay + 6), label, font=fonts["small_b"], fill=WHITE)
-        ay += 38
-        for it in (items or ["Pertahankan standar saat ini."])[:2]:
-            for ln in _wrap(d2, f"→ {it}", fonts["small"], A4_W - 180, max_lines=2):
-                if ay > 1418:
+        d2.rounded_rectangle([82, ay, 475, ay + 28], radius=8, fill=col)
+        d2.text((96, ay + 5), label, font=fonts["small_b"], fill=WHITE)
+        ay += 34
+        for it in (items or ["Maintain current standard."])[:2]:
+            for ln in _wrap(d2, f"→ {it}", fonts["small"], A4_W - 180, max_lines=1):
+                if ay > 1426:
                     break
                 d2.text((92, ay), ln, font=fonts["small"], fill=NAVY)
-                ay += 21
-        ay += 8
+                ay += 20
+        ay += 6
 
     # Bottom Row: Next Week Experiments + Viewer Requests (Left) + KARAT Weekend Research Recommendations (Right)
     _card(d2, (56, 1455, 56 + col_w, A4_H - 56))

@@ -285,6 +285,7 @@ def run_agent_1_to_3(
         is_tech_radar=is_radar,
     )
 
+    from src.tools.mechanism_bank import format_mechanism_catalog_for_agent3
     from src.tools.weekly_growth_auditor import load_latest_agent_directives
     from src.tools.telegram_notify import (
         get_agent_specific_owner_directives,
@@ -296,6 +297,9 @@ def run_agent_1_to_3(
     owner_a1 = get_agent_specific_owner_directives("agent_1")
     owner_a2 = get_agent_specific_owner_directives("agent_2")
     owner_a3 = get_agent_specific_owner_directives("agent_3")
+    owner_a4 = get_agent_specific_owner_directives("agent_4")
+    animator_dir = owner_a4 + (weekly_dir.get("agent_4_animator_directives") or [])
+    mechanism_catalog = format_mechanism_catalog_for_agent3()
     radar_dir = weekly_dir.get("tech_radar_weekend_directives", []) if is_radar else []
     slot_map_hint: list[str] = []
     try:
@@ -463,9 +467,22 @@ def run_agent_1_to_3(
             "FAMILY-SAFE, filmable object/device/environment (e.g. 'contactless smartphone payment terminal closeup', 'induction stove boiling water pot'). "
             "Provide 2-3 equally concrete `fallback_queries`. "
             "For ALL middle explanation scenes (scenes 2 through second-to-last), ALWAYS provide BOTH `overlay_badge` AND `mechanism` "
-            "so the renderer draws an animated diagram: choose `mechanism.kind` from 'electron_transfer', 'polymer_crosslink', "
-            "'molecular_reaction', 'receptor_binding', 'force_wave', or 'math_geometry', with concise English `title` (<=28 chars), "
-            "`actor_a` & `actor_b` (<=14 chars), `result` (<=20 chars), and `caption` (<=48 chars). "
+            "so the renderer draws an animated Sci-Tech mechanistic diagram above the subtitles: choose `mechanism.kind` accurately from the 12 engines:\n"
+            "  - 'magnetic_induction' (NFC/RFID coils, inductive stoves, wireless Qi, eddy currents, electromagnets)\n"
+            "  - 'circuit_signal' (logic gates, capacitive touch grids, piezoelectric pulses, microchips, PWM)\n"
+            "  - 'optical_emission' (OLED pixels, laser/PPG sensors, solar PV, refraction, fiber optics, UV)\n"
+            "  - 'phase_thermal' (heat pipes, vapor chambers, Peltier coolers, Li-ion thermal runaway, flash evaporation)\n"
+            "  - 'membrane_transport' (solid-state electrolyte Li+ hopping, RO osmosis, fuel cell proton membranes, dialysis)\n"
+            "  - 'crystal_lattice' (Gorilla Glass K+ ion exchange, silicon doping, piezoelectric quartz, tempering compression)\n"
+            "  - 'electron_transfer' (redox batteries, corrosion, LED electron-hole recombination, static discharge)\n"
+            "  - 'polymer_crosslink' (superglue cyanoacrylate curing, hydrogels, carbon fiber composites, aerogels)\n"
+            "  - 'molecular_reaction' (catalytic converters, photocatalysts, CO2 capture, smart chemical sensors)\n"
+            "  - 'receptor_binding' (glucose biosensors, mRNA lipid nanoparticles, CRISPR targeting, antibodies)\n"
+            "  - 'force_wave' (ANC destructive sound interference, ultrasound, Bernoulli/Venturi aerodynamics, gyroscopes)\n"
+            "  - 'math_geometry' (honeycomb/origami metamaterials, gears, truss load paths, algorithmic hashing)\n"
+            "Check `mechanism_bank_catalog` and set `mechanism.preset_id` when a learned preset matches, plus pick a cohesive `accent_color` "
+            "('cyan', 'green', 'amber', 'purple', 'orange', 'blue', 'red'). Vary engines across scenes when appropriate instead of repeating blindly. "
+            "Keep concise English `title` (<=28 chars), `actor_a` & `actor_b` (<=14 chars), `result` (<=20 chars), and `caption` (<=48 chars). "
             "Always set a copyright-free `sfx_cue` (whoosh/pop/riser/spark/ding/chime) per scene. "
             "ALWAYS populate `references` with 1-3 real, accurate engineering/science references."
         ),
@@ -475,6 +492,8 @@ def run_agent_1_to_3(
             "voice_style": brand["voice"],
             "requested_by": requested_by,
             "request_comment": request_source_comment,
+            "mechanism_bank_catalog": mechanism_catalog,
+            "animator_directives": animator_dir,
             "weekly_growth_directives": owner_a3 + weekly_dir.get("agent_3_directives", []) + radar_dir,
         },
         response_model=Agent3Output,
@@ -798,6 +817,20 @@ def run_upload(
     if allow_youtube and state.agent3:
         from src.tools.weekly_growth_auditor import record_published_episode
 
+        mechanisms_used = [
+            {
+                "scene_id": sc.scene_id,
+                "kind": sc.mechanism.kind,
+                "preset_id": sc.mechanism.preset_id,
+                "accent_color": sc.mechanism.accent_color,
+                "title": sc.mechanism.title,
+                "actor_a": sc.mechanism.actor_a,
+                "actor_b": sc.mechanism.actor_b,
+                "result": sc.mechanism.result,
+            }
+            for sc in state.agent3.scenes
+            if sc.mechanism is not None
+        ]
         record_published_episode(
             episode_id=episode_id,
             title=state.agent3.title,
@@ -811,6 +844,7 @@ def run_upload(
             revisions_used=state.revision_count,
             topic_attempts_used=topic_attempts_used,
             production_seconds=production_seconds,
+            mechanisms_used=mechanisms_used,
         )
 
     memory = StudioMemory(BASE_DIR)
