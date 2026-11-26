@@ -56,6 +56,34 @@
       "ai_audit_result": null,
       "created_at": "2026-11-27T00:38:13+07:00",
       "updated_at": "2026-11-27T00:38:17+07:00"
+    },
+    "ep_20261127_010007": {
+      "episode_id": "ep_20261127_010007",
+      "slot": "slot_2100",
+      "topic_title": "Why Microwaves Need Spinners",
+      "topic_slug": "microwave_plate_mystery",
+      "pillar": "engineering",
+      "section_tag": "EVERYDAY_TECH",
+      "source_url": "IEEE Transactions on Microwave Theory and Techniques (2018) - Resonant Cavity Electromagnetic Modes",
+      "youtube_video_id": "cazAftFWvZE",
+      "youtube_url": "https://youtube.com/shorts/cazAftFWvZE",
+      "drive_url": "https://drive.google.com/drive/folders/183HN4PeuOoEk1nEUBRFJkMAqV7TqPvdo",
+      "video_artifact_ref": "45872244055:studio-episode-45872244055",
+      "final_video_path": "/home/runner/work/Kimiabill_Project_Eng/Kimiabill_Project_Eng/episodes/ep_20261127_010007/FINAL_microwave_plate_mystery_1080p.mp4",
+      "thumbnail_path": "/home/runner/work/Kimiabill_Project_Eng/Kimiabill_Project_Eng/episodes/ep_20261127_010007/THUMBNAIL_microwave_plate_mystery_9x16.jpg",
+      "footage_tier_summary": "tier_1_video=4, tier_2_photo_ken_burns=1",
+      "tts_engine": "Edge-TTS (en-US-AndrewNeural)",
+      "revision_count": 0,
+      "qa_summary": "Score 9.2/10 (Vis 9.5, Sub 9.0, Aud 9.0)",
+      "pinned_comment": "Team STRIPES or Team EVEN? Comment STRIPES or EVEN! 👇 What everyday tech should we decode next?",
+      "duration_sec": 21.1,
+      "target_publish_iso": "2026-11-27T21:00:00+07:00",
+      "telegram_message_id": 101,
+      "reminder_sent": false,
+      "status": "awaiting_review",
+      "ai_audit_result": null,
+      "created_at": "2026-11-27T01:03:08+07:00",
+      "updated_at": "2026-11-27T01:03:13+07:00"
     }
   }
 }
