@@ -107,7 +107,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          pip install -q pydantic pyyaml requests python-dotenv
+          pip install -q -r requirements.txt
           python - <<'PY'
           import os
           from src.tools.telegram_notify import handle_telegram_dispatch_feedback
@@ -141,7 +141,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          pip install -q pydantic pyyaml requests python-dotenv
+          pip install -q -r requirements.txt
           if [ "$DISPATCH_ACTION" = "telegram_save_backup" ]; then
             python -m src.scheduler save-backup --episode-id "$DISPATCH_EP_ID"
           else
