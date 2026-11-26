@@ -28,6 +28,34 @@
       "ai_audit_result": null,
       "created_at": "2026-11-27T00:28:28+07:00",
       "updated_at": "2026-11-27T00:28:28+07:00"
+    },
+    "ep_20261127_003422": {
+      "episode_id": "ep_20261127_003422",
+      "slot": "slot_2100",
+      "topic_title": "The Glass Stove That Stays Cold",
+      "topic_slug": "induction-stove-physics",
+      "pillar": "engineering",
+      "section_tag": "EVERYDAY_TECH",
+      "source_url": "IEEE Transactions on Magnetics: High-Frequency Induction Heating Analysis, 2021",
+      "youtube_video_id": "aRwuUwZYghU",
+      "youtube_url": "https://youtube.com/shorts/aRwuUwZYghU",
+      "drive_url": "https://drive.google.com/drive/folders/1f8LU_nUCIG59Q3W64e_Yud6rT9xLJ7WZ",
+      "video_artifact_ref": "45868786135:studio-episode-45868786135",
+      "final_video_path": "/home/runner/work/Kimiabill_Project_Eng/Kimiabill_Project_Eng/episodes/ep_20261127_003422/FINAL_induction-stove-physics_1080p.mp4",
+      "thumbnail_path": "/home/runner/work/Kimiabill_Project_Eng/Kimiabill_Project_Eng/episodes/ep_20261127_003422/THUMBNAIL_induction-stove-physics_9x16.jpg",
+      "footage_tier_summary": "tier_2_photo_ken_burns=4, tier_1_video=1",
+      "tts_engine": "Edge-TTS (en-US-AndrewNeural)",
+      "revision_count": 0,
+      "qa_summary": "Score 9.5/10 (Vis 9.5, Sub 10.0, Aud 9.5)",
+      "pinned_comment": "Team Gas or Induction? Comment GAS or INDUCTION! 👇 What everyday tech should we decode next?",
+      "duration_sec": 28.9,
+      "target_publish_iso": "2026-11-27T21:00:00+07:00",
+      "telegram_message_id": 91,
+      "reminder_sent": false,
+      "status": "awaiting_review",
+      "ai_audit_result": null,
+      "created_at": "2026-11-27T00:38:13+07:00",
+      "updated_at": "2026-11-27T00:38:17+07:00"
     }
   }
 }
