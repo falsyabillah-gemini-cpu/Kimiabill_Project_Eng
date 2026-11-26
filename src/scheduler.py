@@ -294,6 +294,9 @@ def run_one_automated_episode(
                         f"[scheduler] Agent 4 proxy v{version} + Gate 0: "
                         f"passed={state.gate0.passed if state.gate0 else False} ({proxy_video})"
                     )
+                    if state.gate0 and not state.gate0.passed and any("outside target" in i for i in state.gate0.issues):
+                        print(f"[scheduler] Gate 0 duration failure ({state.gate0.issues}) cannot be fixed by B-roll/subtitle edits; skipping wasted QA revisions.")
+                        break
 
                     state, audit = run_agent_5_video_qa(episode_id, sheet_path=sheet_path, version=version)
                     last_audit = audit

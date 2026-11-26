@@ -137,6 +137,12 @@ def lint_agent3_storyboard(agent3: Agent3Output) -> list[str]:
             if "thank you for watching" in (sc.narration or "").lower():
                 errors.append(f"{sc.scene_id}.narration: remove slow 'thank you for watching' dead-air outro")
 
+    total_words = sum(len((sc.narration or "").split()) for sc in agent3.scenes)
+    if total_words < 70:
+        errors.append(
+            f"script too short ({total_words} words; must be 85-120 spoken English words across scenes so TTS hits >=25s cleanly)"
+        )
+
     return errors
 
 

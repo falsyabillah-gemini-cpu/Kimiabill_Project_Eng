@@ -477,13 +477,13 @@ def run_agent_1_to_3(
     custom_dur = owner_ro.get("target_duration_sec")
     if isinstance(custom_dur, list) and len(custom_dur) == 2:
         lo_d, hi_d = max(28, int(custom_dur[0])), min(46, int(custom_dur[1]))
-        lo_w, hi_w = int(lo_d * 2.4), int(hi_d * 2.5)
+        lo_w, hi_w = int(lo_d * 2.85), int(hi_d * 2.95)
         duration_rule = f"~{lo_d}-{hi_d}s spoken (~{lo_w}-{hi_w} English words across 5-6 tight scenes)"
     else:
         duration_rule = (
-            "~34-46s spoken (~85-115 English words across 5-6 tight scenes, ~15-21 words per scene)"
+            "~34-46s spoken (~95-125 English words across 5-6 tight scenes, ~17-22 words per scene)"
             if is_radar
-            else "~30-44s spoken (~75-108 English words across 5-6 tight scenes, ~14-19 words per scene)"
+            else "~30-44s spoken (~88-118 English words across 5-6 tight scenes, ~16-21 words per scene)"
         )
     spoken_requester = requested_by.lstrip("@") if requested_by else ""
     req_a3_note = (
