@@ -1,1 +1,23 @@
-[]
+[
+  {
+    "episode_id": "ep_20261127_002412",
+    "topic_title": "Why Your Phone's Dark Mode Tricks Physics",
+    "topic_slug": "why-dark-mode-saves-battery",
+    "pillar": "gadgets",
+    "section_tag": "EVERYDAY_TECH",
+    "source_url": "IEEE Transactions on Consumer Electronics: OLED Power Consumption Analysis, 2021",
+    "youtube_video_id": "2psKE13r35k",
+    "youtube_url": "https://youtube.com/shorts/2psKE13r35k",
+    "drive_url": "https://drive.google.com/drive/folders/13xAs_rV5YOuawl5gj8clMUv29DWweABa",
+    "video_artifact_ref": "45867359320:studio-episode-45867359320",
+    "final_video_path": "/home/runner/work/Kimiabill_Project_Eng/Kimiabill_Project_Eng/episodes/ep_20261127_002412/FINAL_why-dark-mode-saves-battery_1080p.mp4",
+    "thumbnail_path": "/home/runner/work/Kimiabill_Project_Eng/Kimiabill_Project_Eng/episodes/ep_20261127_002412/THUMBNAIL_why-dark-mode-saves-battery_9x16.jpg",
+    "footage_tier_summary": "tier_1_video=3, tier_2_photo_ken_burns=2",
+    "tts_engine": "Edge-TTS (en-US-AndrewNeural)",
+    "duration_sec": 29.6,
+    "qa_summary": "Score 9.5/10 (Vis 9.5, Sub 10.0, Aud 9.0)",
+    "pinned_comment": "Team DARK or LIGHT? Comment your pick! 👇 What everyday tech should we decode next?",
+    "source_reason": "manual_backup_run",
+    "queued_at": "2026-11-27T00:28:28+07:00"
+  }
+]
