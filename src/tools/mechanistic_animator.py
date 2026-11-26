@@ -307,16 +307,16 @@ def draw_scene1_hook(
     if t >= 0.05:
         p1 = ease_out_back(t / 0.32)
         y1 = int(250 - (1.0 - min(p1, 1.0)) * 40)
-        draw_outlined_text(draw, (540, y1), "KENAPA BESI", fonts["hook_sub"], fill=WHITE, stroke_w=9)
+        draw_outlined_text(draw, (540, y1), "WHY DOES IRON", fonts["hook_sub"], fill=WHITE, stroke_w=9)
     if t >= 0.25:
         p2 = ease_out_back((t - 0.25) / 0.35)
         y2 = int(355 - (1.0 - min(p2, 1.0)) * 35)
-        draw_outlined_text(draw, (540, y2), "BISA BERKARAT?!", fonts["hook_main"], fill=YELLOW, stroke_w=11)
+        draw_outlined_text(draw, (540, y2), "ACTUALLY RUST?!", fonts["hook_main"], fill=YELLOW, stroke_w=11)
     if t >= 0.65:
         p3 = ease_out_back((t - 0.65) / 0.35)
         y3 = int(450 + (1.0 - min(p3, 1.0)) * 20)
         draw_comic_box(draw, (185, y3 - 34, 895, y3 + 34), fill=ORANGE, radius=32, border_w=5, shadow_offset=6)
-        draw_outlined_text(draw, (540, y3), "TERNYATA LAGI TERBAKAR PELAN!", fonts["small_bold"], fill=WHITE, stroke_w=4)
+        draw_outlined_text(draw, (540, y3), "IT'S SLOWLY BURNING IN AIR!", fonts["small_bold"], fill=WHITE, stroke_w=4)
 
     # Bobbing comic '?' and '!' icons
     bob1 = int(math.sin(t * 5.0) * 14)
@@ -337,7 +337,7 @@ def draw_scene2_oxidation_compare(
     fonts: dict,
     mascots: Optional[MascotLibrary],
 ) -> None:
-    draw_header_pill(draw, "OKSIDASI = TERBAKAR LAMBAT", ORANGE, fonts, t)
+    draw_header_pill(draw, "OXIDATION = SLOW BURNING", ORANGE, fonts, t)
 
     # Mechanistic card: Fast Fire Oxidation vs Slow Rust Oxidation
     bx0, by0, bx1, by1 = 68, 300, 1012, 815
@@ -345,9 +345,9 @@ def draw_scene2_oxidation_compare(
     # Center divider
     draw.line([(540, by0 + 26), (540, by1 - 26)], fill=(210, 218, 232, 255), width=4)
 
-    # Left: API (Oksidasi Cepat)
+    # Left: FIRE (Fast Oxidation)
     draw.rounded_rectangle([110, 330, 500, 388], radius=18, fill=RED, outline=INK, width=4)
-    draw_outlined_text(draw, (305, 359), "API (CEPAT)", fonts["small_bold"], fill=WHITE, stroke_w=3)
+    draw_outlined_text(draw, (305, 359), "FIRE (FAST)", fonts["small_bold"], fill=WHITE, stroke_w=3)
     # Animated flame pulsing
     pulse = 1.0 + 0.12 * math.sin(t * 14.0)
     fx, fy = 305, 575
@@ -368,13 +368,13 @@ def draw_scene2_oxidation_compare(
         sx = fx + int(math.cos(ang) * (75 + (i % 2) * 28))
         sy = fy - 45 - int(((t * 90 + i * 35) % 120))
         draw.ellipse([sx - 6, sy - 6, sx + 6, sy + 6], fill=YELLOW, outline=INK, width=2)
-    draw.text((305, 675), "Fe + O₂ + Panas", font=fonts["tiny_bold"], fill=INK, anchor="mm")
+    draw.text((305, 675), "Fe + O₂ + Heat", font=fonts["tiny_bold"], fill=INK, anchor="mm")
     draw.rounded_rectangle([140, 712, 470, 766], radius=16, fill=(255, 236, 236, 255), outline=RED, width=3)
-    draw.text((305, 739), "Hitungan DETIK", font=fonts["tiny_bold"], fill=RED, anchor="mm")
+    draw.text((305, 739), "Takes SECONDS", font=fonts["tiny_bold"], fill=RED, anchor="mm")
 
-    # Right: KARAT (Oksidasi Lambat)
+    # Right: RUST (Slow Oxidation)
     draw.rounded_rectangle([580, 330, 970, 388], radius=18, fill=RUST_LIGHT, outline=INK, width=4)
-    draw_outlined_text(draw, (775, 359), "KARAT (LAMBAT)", fonts["small_bold"], fill=WHITE, stroke_w=3)
+    draw_outlined_text(draw, (775, 359), "RUST (SLOW)", fonts["small_bold"], fill=WHITE, stroke_w=3)
     # Iron bar slowly getting covered by creeping rust spots
     draw.rounded_rectangle([620, 515, 930, 595], radius=16, fill=IRON_GRAY, outline=INK, width=5)
     progress = clamp(t / max(dur * 0.85, 1.0))
@@ -394,19 +394,19 @@ def draw_scene2_oxidation_compare(
         draw.ellipse([ox - 20, oy - 20, ox + 20, oy + 20], fill=CYAN, outline=INK, width=3)
         draw.text((ox, oy), "O₂", font=fonts["micro_bold"], fill=INK, anchor="mm")
 
-    draw.text((775, 675), "Fe + O₂ + H₂O (Tanpa Api)", font=fonts["tiny_bold"], fill=INK, anchor="mm")
+    draw.text((775, 675), "Fe + O₂ + H₂O (No Flame)", font=fonts["tiny_bold"], fill=INK, anchor="mm")
     draw.rounded_rectangle([610, 712, 940, 766], radius=16, fill=(255, 243, 228, 255), outline=RUST_LIGHT, width=3)
-    draw.text((775, 739), "Hitungan HARI/BULAN", font=fonts["tiny_bold"], fill=RUST_DARK, anchor="mm")
+    draw.text((775, 739), "Takes DAYS / MONTHS", font=fonts["tiny_bold"], fill=RUST_DARK, anchor="mm")
 
     # Key takeaway card (shifts slightly left if mascot is on right)
     tk_x = 380 if mascots else 540
     tk_w = 570 if mascots else 660
     draw_takeaway_card(
         draw,
-        "Keduanya sama-sama",
-        "OKSIDASI!",
+        "Both are forms of",
+        "OXIDATION!",
         ORANGE,
-        "Besi bereaksi dengan oksigen",
+        "Iron reacts directly with oxygen",
         fonts,
         t,
         appear_at=2.6,
@@ -426,7 +426,7 @@ def draw_scene3_atomic_mechanism(
     fonts: dict,
     mascots: Optional[MascotLibrary],
 ) -> None:
-    draw_header_pill(draw, "1: REAKSI KIMIA KARAT", BLUE, fonts, t)
+    draw_header_pill(draw, "1: RUST CHEMISTRY REACTION", BLUE, fonts, t)
 
     # Atomic Simulation Box
     bx0, by0, bx1, by1 = 68, 300, 1012, 835
@@ -478,7 +478,7 @@ def draw_scene3_atomic_mechanism(
     # Live counter bar at bottom of diagram box (just like reference virus_dubbed.mp4!)
     draw.text(
         (540, 800),
-        f"Atom berubah jadi oksida besi (karat): {rust_count} / 8",
+        f"Atoms turned into iron oxide (rust): {rust_count} / 8",
         font=fonts["tiny_bold"],
         fill=RUST_DARK,
         anchor="mm",
@@ -489,10 +489,10 @@ def draw_scene3_atomic_mechanism(
     tk_w = 570 if mascots else 720
     draw_takeaway_card(
         draw,
-        "Rumus Pembentukan Karat",
+        "Rust Formation Formula",
         "Fe₂O₃·nH₂O",
         RUST_LIGHT,
-        "Fe + O₂ + H₂O → Oksida Besi Oranye",
+        "Fe + O₂ + H₂O → Orange Iron Oxide",
         fonts,
         t,
         appear_at=1.6,
@@ -512,7 +512,7 @@ def draw_scene4_porous_rust(
     fonts: dict,
     mascots: Optional[MascotLibrary],
 ) -> None:
-    draw_header_pill(draw, "2: KARAT ITU BERPORI!", PURPLE, fonts, t)
+    draw_header_pill(draw, "2: RUST IS POROUS!", PURPLE, fonts, t)
 
     bx0, by0, bx1, by1 = 68, 300, 1012, 825
     draw_comic_box(draw, (bx0, by0, bx1, by1), fill=CARD_BG, radius=30, border_w=6, shadow_offset=10)
@@ -523,7 +523,7 @@ def draw_scene4_porous_rust(
 
     # Fresh iron core at bottom
     draw.rectangle([120, 520, 960, 765], fill=IRON_GRAY, outline=INK, width=5)
-    draw.text((540, 720), "LAPISAN BESI SEHAT (TERUS TERGEROGOTI)", font=fonts["tiny_bold"], fill=WHITE, anchor="mm")
+    draw.text((540, 720), "HEALTHY IRON CORE (STILL CORRODING)", font=fonts["tiny_bold"], fill=WHITE, anchor="mm")
 
     # Expanding porous rust crust
     draw.rectangle([120, 445, 960, 445 + rust_depth], fill=RUST_LIGHT, outline=INK, width=5)
@@ -535,7 +535,7 @@ def draw_scene4_porous_rust(
                 [(px - 18, py), (px + 18, py), (px + 8, py + 48), (px - 10, py + 48)],
                 fill=(76, 36, 18, 255),
             )
-    draw_outlined_text(draw, (540, 485), "Lapisan Karat Rapuh & Retak", fonts["small_bold"], fill=WHITE, stroke_w=4)
+    draw_outlined_text(draw, (540, 485), "Brittle & Cracked Rust Layer", fonts["small_bold"], fill=WHITE, stroke_w=4)
 
     # Animated H2O & O2 arrows penetrating straight through the cracks!
     for idx, ax in enumerate((240, 420, 630, 810)):
@@ -552,10 +552,10 @@ def draw_scene4_porous_rust(
     tk_w = 595 if mascots else 680
     draw_takeaway_card(
         draw,
-        "Karat besi sifatnya",
-        "BERPORI!",
+        "Iron rust is naturally",
+        "POROUS!",
         PURPLE,
-        "Air & O₂ terus tembus ke dalam",
+        "Water & O₂ keep seeping inside",
         fonts,
         t,
         appear_at=1.6,
@@ -575,23 +575,23 @@ def draw_scene5_saltwater_race(
     fonts: dict,
     mascots: Optional[MascotLibrary],
 ) -> None:
-    draw_header_pill(draw, "3: EFEK PANTAI & AIR GARAM", RED, fonts, t)
+    draw_header_pill(draw, "3: BEACH & SALTWATER EFFECT", RED, fonts, t)
 
     bx0, by0, bx1, by1 = 68, 300, 1012, 825
     draw_comic_box(draw, (bx0, by0, bx1, by1), fill=CARD_BG, radius=30, border_w=6, shadow_offset=10)
-    draw.text((540, 350), "Kecepatan Munculnya Karat pada Besi", font=fonts["small_bold"], fill=INK, anchor="mm")
+    draw.text((540, 350), "Rust Formation Speed on Iron", font=fonts["small_bold"], fill=INK, anchor="mm")
 
     progress = ease_out_cubic(clamp(t / max(dur * 0.72, 1.0)))
 
-    # Bar 1: Air Biasa (slow)
-    draw.text((130, 445), "Air Biasa (Tawar)", font=fonts["small_bold"], fill=BLUE, anchor="lm")
+    # Bar 1: Fresh Water (slow)
+    draw.text((130, 445), "Fresh Water", font=fonts["small_bold"], fill=BLUE, anchor="lm")
     draw.rounded_rectangle([130, 478, 945, 545], radius=22, fill=(230, 236, 245, 255), outline=INK, width=4)
     w1 = max(24, int(805 * 0.28 * progress))
     draw.rounded_rectangle([135, 483, 135 + w1, 540], radius=18, fill=BLUE)
     draw.text((155 + w1, 512), f"{int(28 * progress)}%", font=fonts["small_bold"], fill=INK, anchor="lm")
 
-    # Bar 2: Air Garam / Pantai (FAST + electric sparks!)
-    draw.text((130, 610), "Air Garam Pantai (Na⁺ Cl⁻)", font=fonts["small_bold"], fill=RED, anchor="lm")
+    # Bar 2: Saltwater / Coastal Air (FAST + electric sparks!)
+    draw.text((130, 610), "Coastal Saltwater (Na⁺ Cl⁻)", font=fonts["small_bold"], fill=RED, anchor="lm")
     draw.rounded_rectangle([130, 643, 945, 718], radius=22, fill=(252, 232, 232, 255), outline=INK, width=4)
     w2 = max(24, int(805 * 0.94 * progress))
     draw.rounded_rectangle([135, 648, 135 + w2, 713], radius=18, fill=RED)
@@ -603,16 +603,16 @@ def draw_scene5_saltwater_race(
         sy = 680 + int(math.sin(t * 20 + s) * 14)
         draw_outlined_text(draw, (sx, sy), "⚡", fonts["small_bold"], fill=YELLOW, stroke_w=2)
 
-    draw.text((540, 772), "Ion garam (Na⁺, Cl⁻) = jembatan aliran listrik mikro!", font=fonts["tiny_bold"], fill=(60, 68, 86, 255), anchor="mm")
+    draw.text((540, 772), "Salt ions (Na⁺, Cl⁻) = micro electrical bridge!", font=fonts["tiny_bold"], fill=(60, 68, 86, 255), anchor="mm")
 
     tk_x = 710 if mascots else 540
     tk_w = 595 if mascots else 680
     draw_takeaway_card(
         draw,
-        "Dekat laut, karat jauh lebih",
-        "CEPAT!",
+        "Near the ocean, rust is",
+        "MUCH FASTER!",
         RED,
-        "Garam percepat transfer elektron",
+        "Salt accelerates electron transfer",
         fonts,
         t,
         appear_at=1.8,
@@ -636,13 +636,13 @@ def draw_scene6_solution_and_outro(
 
     if t < outro_start:
         # Part 1: Real footage + Animated Protective Coating Shield Diagram
-        draw_header_pill(draw, "SOLUSI: BLOKIR KONTAK!", GREEN, fonts, t)
+        draw_header_pill(draw, "SOLUTION: BLOCK THE CONTACT!", GREEN, fonts, t)
         bx0, by0, bx1, by1 = 68, 300, 1012, 815
         draw_comic_box(draw, (bx0, by0, bx1, by1), fill=CARD_BG, radius=30, border_w=6, shadow_offset=10)
 
         # Iron core safely underneath
         draw.rounded_rectangle([120, 625, 960, 745], radius=18, fill=IRON_GRAY, outline=INK, width=5)
-        draw_outlined_text(draw, (540, 685), "BESI AMAN & BEBAS KARAT ✔", fonts["small_bold"], fill=WHITE, stroke_w=4)
+        draw_outlined_text(draw, (540, 685), "IRON SAFE & RUST-FREE ✔", fonts["small_bold"], fill=WHITE, stroke_w=4)
 
         # Protective paint / zinc galvanize shield layer sweeping across
         shield_p = ease_out_cubic(clamp(t / 1.0))
@@ -650,7 +650,7 @@ def draw_scene6_solution_and_outro(
         if sw > 20:
             draw.rounded_rectangle([120, 540, 120 + sw, 625], radius=16, fill=GREEN, outline=INK, width=5)
             if shield_p > 0.55:
-                draw_outlined_text(draw, (540, 582), "LAPISAN CAT / SENG (GALVANIS)", fonts["small_bold"], fill=WHITE, stroke_w=4)
+                draw_outlined_text(draw, (540, 582), "PAINT OR ZINC COATING (GALVANIZED)", fonts["small_bold"], fill=WHITE, stroke_w=4)
 
         # Incoming H2O & O2 particles bouncing OFF the shield!
         for idx, mx in enumerate((250, 440, 640, 830)):
@@ -674,8 +674,8 @@ def draw_scene6_solution_and_outro(
         draw_comic_box(draw, (x0, 880, x0 + ck_w, 1020), fill=CARD_BG, radius=24, border_w=5, shadow_offset=8)
         draw.ellipse([x0 + 26, 922, x0 + 82, 978], fill=GREEN, outline=INK, width=4)
         draw.text((x0 + 54, 950), "✔", font=fonts["small_bold"], fill=WHITE, anchor="mm")
-        draw.text((x0 + 106, 932), "Cat atau Lapisan Seng", font=fonts["small_bold"], fill=INK, anchor="lm")
-        draw.text((x0 + 106, 972), "Cegah air & O₂ menyentuh besi", font=fonts["tiny_bold"], fill=(70, 78, 96, 255), anchor="lm")
+        draw.text((x0 + 106, 932), "Paint or Zinc Layer", font=fonts["small_bold"], fill=INK, anchor="lm")
+        draw.text((x0 + 106, 972), "Stops water & O₂ reaching iron", font=fonts["tiny_bold"], fill=(70, 78, 96, 255), anchor="lm")
 
         if mascots:
             mascots.paste(canvas, "male_explain", center_x=875, bottom_y=1295, target_h=430, local_t=t, appear_at=0.15, flip_x=True)
@@ -684,7 +684,9 @@ def draw_scene6_solution_and_outro(
         if t > outro_start - 0.35:
             draw_diagonal_wipe(draw, (t - (outro_start - 0.35)) / 0.35)
     else:
-        # Part 2: Signature TERJAWAB! Outro (clean sunburst + card + @kimiabill + source)
+        # Part 2: Signature EXPLAINED! Outro (clean sunburst + card + brand handle + source)
+        from src.brand_config import get_brand_handle
+
         ot = t - outro_start
         burst = draw_sunburst_bg(1080, 1920, angle_offset=ot * 0.25)
         canvas.alpha_composite(burst, (0, 0))
@@ -692,12 +694,12 @@ def draw_scene6_solution_and_outro(
 
         y_shift = 0 if mascots else 185
 
-        # Tilted TERJAWAB! comic card
+        # Tilted EXPLAINED! comic card
         p = ease_out_back(ot / 0.35)
         card = Image.new("RGBA", (820, 260), (0, 0, 0, 0))
         cd = ImageDraw.Draw(card)
         draw_comic_box(cd, (20, 20, 790, 230), fill=WHITE, outline=BLUE, radius=32, border_w=10, shadow_offset=12)
-        draw_outlined_text(cd, (405, 125), "TERJAWAB!", fonts["terjawab"], fill=BLUE, outline_color=WHITE, stroke_w=0)
+        draw_outlined_text(cd, (405, 125), "EXPLAINED!", fonts["terjawab"], fill=BLUE, outline_color=WHITE, stroke_w=0)
         rot = card.rotate(3.5, resample=Image.Resampling.BICUBIC, expand=True)
         rw = max(50, int(rot.width * min(p, 1.03)))
         rh = max(50, int(rot.height * min(p, 1.03)))
@@ -708,13 +710,13 @@ def draw_scene6_solution_and_outro(
         draw_outlined_text(
             draw,
             (540, 565 + y_shift),
-            "Karat = Oksidasi lambat besi + air + O₂",
+            "Rust = Slow oxidation of iron + water + O₂",
             fonts["summary"],
             fill=WHITE,
             stroke_w=6,
         )
 
-        # Follow @kimiabill button
+        # Follow brand handle button
         if ot >= 0.45:
             fp = ease_out_back((ot - 0.45) / 0.35)
             bw = int(600 * min(fp, 1.03))
@@ -722,7 +724,7 @@ def draw_scene6_solution_and_outro(
             bx = 540 - bw // 2
             by = 665 + y_shift - bh // 2
             draw_comic_box(draw, (bx, by, bx + bw, by + bh), fill=BLUE, outline=WHITE, radius=48, border_w=6, shadow_offset=8)
-            draw_outlined_text(draw, (540, 665 + y_shift), "Follow @kimiabill", fonts["header"], fill=WHITE, stroke_w=4)
+            draw_outlined_text(draw, (540, 665 + y_shift), f"Follow {get_brand_handle()}", fonts["header"], fill=WHITE, stroke_w=4)
 
         if mascots:
             mascots.paste(canvas, "male_celebrate", center_x=320, bottom_y=1295, target_h=455, local_t=ot, appear_at=0.10)
@@ -731,7 +733,7 @@ def draw_scene6_solution_and_outro(
         # Credible scientific source note (matching reference style)
         draw.text(
             (540, 1690),
-            "Sumber: Callister & Rethwisch, Materials Science and Engineering",
+            "Source: Callister & Rethwisch, Materials Science and Engineering",
             font=fonts["micro_bold"],
             fill=(50, 34, 8, 230),
             anchor="mm",
@@ -1326,7 +1328,7 @@ def _anim_polymer_crosslink(
             ay1 = y0 + 76 + pulse
             draw.line([(fx, ay0), (fx, ay1)], fill=RED, width=8)
             draw.polygon([(fx, ay1 + 14), (fx - 13, ay1 - 4), (fx + 13, ay1 - 4)], fill=RED, outline=INK)
-        _draw_label_pill(draw, cx, y0 + 26, "GAYA TEKUK / TEKANAN", fonts["micro_bold"], bg=RED, fg=WHITE)
+        _draw_label_pill(draw, cx, y0 + 26, "BENDING FORCE / STRESS", fonts["micro_bold"], bg=RED, fg=WHITE)
     elif rigid_prog > 0.2:
         _draw_label_pill(draw, cx, y0 + 26, f"✓ {params['result'].upper()}", fonts["micro_bold"], bg=(18, 132, 74, 255), fg=WHITE)
 
@@ -1374,7 +1376,7 @@ def _anim_polymer_crosslink(
     draw_outlined_text(
         draw,
         ((bar_x0 + bar_x1) // 2, (bar_y0 + bar_y1) // 2),
-        f"{params['actor_b'].upper()} → KEKUATAN / RIGIDITAS: {pct}%",
+        f"{params['actor_b'].upper()} → STRENGTH / RIGIDITY: {pct}%",
         fonts["micro_bold"],
         fill=WHITE,
         outline_color=INK,
@@ -1394,28 +1396,28 @@ def _anim_electron_transfer(
     x0, y0, x1, y1 = box
     prog = clamp(t / max(dur * 0.80, 1.6))
     cx = (x0 + x1) // 2
-    cy = y0 + 124
+    cy = y0 + 116
 
     # Left Donor cluster
     donor_x = x0 + 185
     donor_col = RUST_LIGHT if prog > 0.55 else IRON_GRAY
-    for dy_off in (-44, 0, 44):
-        draw.ellipse([donor_x - 30, cy + dy_off - 26, donor_x + 30, cy + dy_off + 26], fill=donor_col, outline=INK, width=4)
+    for dy_off in (-42, 0, 42):
+        draw.ellipse([donor_x - 28, cy + dy_off - 24, donor_x + 28, cy + dy_off + 24], fill=donor_col, outline=INK, width=4)
     _draw_label_pill(draw, donor_x, cy, params["actor_a"], fonts["micro_bold"], bg=CARD_DARK, fg=YELLOW, max_w=280)
-    _draw_label_pill(draw, donor_x, cy + 88, "DONOR (Oksidasi)", fonts["micro_bold"], bg=RUST_DARK, fg=WHITE, max_w=310)
+    _draw_label_pill(draw, donor_x, cy + 82, "DONOR (Oxidation)", fonts["micro_bold"], bg=RUST_DARK, fg=WHITE, max_w=310)
 
     # Right Acceptor cluster
     acc_x = x1 - 185
     acc_col = (18, 132, 74, 255) if prog > 0.65 else BLUE
-    for dy_off in (-44, 0, 44):
-        draw.ellipse([acc_x - 30, cy + dy_off - 26, acc_x + 30, cy + dy_off + 26], fill=acc_col, outline=INK, width=4)
+    for dy_off in (-42, 0, 42):
+        draw.ellipse([acc_x - 28, cy + dy_off - 24, acc_x + 28, cy + dy_off + 24], fill=acc_col, outline=INK, width=4)
     _draw_label_pill(draw, acc_x, cy, params["actor_b"], fonts["micro_bold"], bg=CARD_DARK, fg=CYAN, max_w=280)
-    _draw_label_pill(draw, acc_x, cy + 88, "AKSEPTOR (Reduksi)", fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=310)
+    _draw_label_pill(draw, acc_x, cy + 82, "ACCEPTOR (Reduction)", fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=310)
 
     # Curved mechanistic reaction arrow arching from Donor -> Acceptor
-    p0 = (donor_x + 56, cy - 30)
-    ctrl = (cx, y0 + 12)
-    p2 = (acc_x - 56, cy - 30)
+    p0 = (donor_x + 56, cy - 28)
+    ctrl = (cx, y0 + 10)
+    p2 = (acc_x - 56, cy - 28)
     arc_pts = _draw_curved_arrow(draw, p0, ctrl, p2, ORANGE, width=7, steps=30)
 
     # 3 glowing yellow electrons (e⁻) flying along the curved reaction arrow!
@@ -1428,7 +1430,7 @@ def _anim_electron_transfer(
 
     if prog > 0.25:
         _draw_label_pill(
-            draw, cx, y1 - 24, f"HASIL: {params['result']}", fonts["tiny_bold"],
+            draw, cx, y1 - 22, f"RESULT: {params['result']}", fonts["tiny_bold"],
             bg=(18, 132, 74, 255), fg=WHITE, max_w=(x1 - x0) - 40,
         )
 
@@ -1445,7 +1447,7 @@ def _anim_molecular_reaction(
     x0, y0, x1, y1 = box
     prog = clamp(t / max(dur * 0.78, 1.8))
     cx = (x0 + x1) // 2
-    cy = y0 + 118
+    cy = y0 + 112
 
     approach = ease_out_cubic(min(prog / 0.55, 1.0))
     bonded = prog >= 0.55
@@ -1457,17 +1459,17 @@ def _anim_molecular_reaction(
         draw.line([(ax, cy), (ax + ox, cy + oy)], fill=INK, width=6)
         draw.ellipse([ax + ox - 16, cy + oy - 16, ax + ox + 16, cy + oy + 16], fill=CYAN, outline=INK, width=3)
     draw.ellipse([ax - 34, cy - 34, ax + 34, cy + 34], fill=BLUE, outline=INK, width=4)
-    _draw_label_pill(draw, ax - 18, cy + 68, params["actor_a"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=270)
+    _draw_label_pill(draw, ax - 18, cy + 66, params["actor_a"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=270)
 
     # Molecule B (ball-and-stick cluster)
     for ox, oy in ((46, -34), (46, 34)):
         draw.line([(bx, cy), (bx + ox, cy + oy)], fill=INK, width=6)
         draw.ellipse([bx + ox - 16, cy + oy - 16, bx + ox + 16, cy + oy + 16], fill=ORANGE, outline=INK, width=3)
     draw.ellipse([bx - 34, cy - 34, bx + 34, cy + 34], fill=PURPLE, outline=INK, width=4)
-    _draw_label_pill(draw, bx + 18, cy + 68, params["actor_b"], fonts["micro_bold"], bg=PURPLE, fg=WHITE, max_w=270)
+    _draw_label_pill(draw, bx + 18, cy + 66, params["actor_b"], fonts["micro_bold"], bg=PURPLE, fg=WHITE, max_w=270)
 
     if not bonded:
-        pts = _draw_curved_arrow(draw, (ax + 24, cy - 38), (cx, y0 + 20), (bx - 24, cy - 38), RED, width=6)
+        pts = _draw_curved_arrow(draw, (ax + 24, cy - 38), (cx, y0 + 18), (bx - 24, cy - 38), RED, width=6)
         idx = min(len(pts) - 1, int(((t * 1.1) % 1.0) * (len(pts) - 1)))
         ex, ey = pts[idx]
         draw.ellipse([ex - 14, ey - 14, ex + 14, ey + 14], fill=YELLOW, outline=INK, width=3)
@@ -1477,9 +1479,9 @@ def _anim_molecular_reaction(
         r_pulse = int(26 + 14 * math.sin(t * 8))
         draw.ellipse([cx - r_pulse, cy - r_pulse, cx + r_pulse, cy + r_pulse], outline=ORANGE, width=5)
 
-    lbl = f"IKATAN TERBENTUK: {params['result']}" if bonded else f"{params['actor_a']} + {params['actor_b']} → REAKSI"
+    lbl = f"BOND FORMED: {params['result']}" if bonded else f"{params['actor_a']} + {params['actor_b']} → REACTION"
     _draw_label_pill(
-        draw, cx, y1 - 24, lbl, fonts["tiny_bold"],
+        draw, cx, y1 - 22, lbl, fonts["tiny_bold"],
         bg=(18, 132, 74, 255) if bonded else CARD_DARK, fg=WHITE if bonded else YELLOW,
         max_w=(x1 - x0) - 40,
     )
@@ -1499,12 +1501,12 @@ def _anim_receptor_binding(
     dock = ease_out_cubic(min(prog / 0.62, 1.0))
     locked = prog >= 0.62
     cx = (x0 + x1) // 2
-    cy = y0 + 116
+    cy = y0 + 112
 
     rx = cx + 80
     rec_col = (18, 132, 74, 255) if locked else PURPLE
-    draw.rounded_rectangle([rx - 40, cy - 72, rx + 210, cy + 72], radius=36, fill=rec_col, outline=INK, width=5)
-    draw.pieslice([rx - 76, cy - 44, rx + 18, cy + 44], start=300, end=60, fill=CARD_BG, outline=INK, width=4)
+    draw.rounded_rectangle([rx - 40, cy - 68, rx + 210, cy + 68], radius=34, fill=rec_col, outline=INK, width=5)
+    draw.pieslice([rx - 76, cy - 42, rx + 18, cy + 42], start=300, end=60, fill=CARD_BG, outline=INK, width=4)
     _draw_label_pill(draw, rx + 108, cy, params["actor_b"], fonts["micro_bold"], bg=CARD_DARK, fg=WHITE, max_w=190)
 
     lx = int((x0 + 175) + dock * (rx - 64 - (x0 + 175)))
@@ -1517,12 +1519,12 @@ def _anim_receptor_binding(
     _draw_label_pill(draw, lx - 28, ly, params["actor_a"], fonts["micro_bold"], bg=CARD_DARK, fg=YELLOW, max_w=175)
 
     if locked:
-        r_glow = int(48 + 8 * math.sin(t * 9))
+        r_glow = int(46 + 8 * math.sin(t * 9))
         draw.ellipse([rx - 28 - r_glow, cy - r_glow, rx - 28 + r_glow, cy + r_glow], outline=YELLOW, width=5)
 
-    lbl = f"✓ TERIKAT: {params['result']}" if locked else f"{params['actor_a']} → MENUJU {params['actor_b']}"
+    lbl = f"✓ LOCKED: {params['result']}" if locked else f"{params['actor_a']} → TARGETING {params['actor_b']}"
     _draw_label_pill(
-        draw, cx, y1 - 24, lbl, fonts["tiny_bold"],
+        draw, cx, y1 - 22, lbl, fonts["tiny_bold"],
         bg=(18, 132, 74, 255) if locked else CARD_DARK, fg=WHITE if locked else YELLOW,
         max_w=(x1 - x0) - 40,
     )
@@ -1539,27 +1541,27 @@ def _anim_force_wave(
     """Animate live traveling physics wave + oscillating particles + force/energy vectors."""
     x0, y0, x1, y1 = box
     cx = (x0 + x1) // 2
-    cy = y0 + 132
+    cy = y0 + 126
     left_x, right_x = x0 + 60, x1 - 60
     draw.line([(left_x, cy), (right_x, cy)], fill=(180, 190, 205, 255), width=3)
     pts: list[tuple[int, int]] = []
     for px in range(left_x, right_x, 8):
         u = (px - left_x) / max(1, right_x - left_x)
-        py = int(cy - 60 * math.sin(u * 3.5 * math.pi - t * 6.5))
+        py = int(cy - 54 * math.sin(u * 3.5 * math.pi - t * 6.5))
         pts.append((px, py))
     for i in range(len(pts) - 1):
         draw.line([pts[i], pts[i + 1]], fill=BLUE, width=7)
     for k in range(8):
         u = k / 7.0
         px = int(left_x + u * (right_x - left_x))
-        dy = int(-60 * math.sin(u * 3.5 * math.pi - t * 6.5))
+        dy = int(-54 * math.sin(u * 3.5 * math.pi - t * 6.5))
         py = cy + dy
         draw.line([(px, cy), (px, py)], fill=ORANGE, width=4)
         draw.ellipse([px - 12, py - 12, px + 12, py + 12], fill=YELLOW, outline=INK, width=3)
 
-    _draw_label_pill(draw, left_x + 120, y0 + 28, params["actor_a"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=260)
-    _draw_label_pill(draw, right_x - 120, y0 + 28, params["actor_b"], fonts["micro_bold"], bg=ORANGE, fg=WHITE, max_w=260)
-    _draw_label_pill(draw, cx, y1 - 24, f"EFEK: {params['result']}", fonts["tiny_bold"], bg=BLUE, fg=WHITE, max_w=(x1 - x0) - 40)
+    _draw_label_pill(draw, left_x + 120, y0 + 26, params["actor_a"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=260)
+    _draw_label_pill(draw, right_x - 120, y0 + 26, params["actor_b"], fonts["micro_bold"], bg=ORANGE, fg=WHITE, max_w=260)
+    _draw_label_pill(draw, cx, y1 - 22, f"EFFECT: {params['result']}", fonts["tiny_bold"], bg=BLUE, fg=WHITE, max_w=(x1 - x0) - 40)
 
 
 def _anim_math_geometry(
@@ -1574,7 +1576,7 @@ def _anim_math_geometry(
     x0, y0, x1, y1 = box
     cx = (x0 + x1) // 2
     prog = clamp(t / max(dur * 0.82, 1.8))
-    gx0, gy0, gx1, gy1 = x0 + 80, y0 + 34, x1 - 80, y1 - 62
+    gx0, gy0, gx1, gy1 = x0 + 80, y0 + 30, x1 - 80, y1 - 58
     for i in range(1, 5):
         gy = gy0 + i * (gy1 - gy0) // 5
         draw.line([(gx0, gy), (gx1, gy)], fill=(225, 232, 240, 255), width=2)
@@ -1593,7 +1595,7 @@ def _anim_math_geometry(
     lx, ly = pts[-1]
     draw.ellipse([lx - 14, ly - 14, lx + 14, ly + 14], fill=YELLOW, outline=INK, width=3)
     _draw_label_pill(draw, gx0 + 130, gy0 + 22, params["actor_a"], fonts["micro_bold"], bg=PURPLE, fg=WHITE, max_w=260)
-    _draw_label_pill(draw, cx, y1 - 24, f"HASIL: {params['result']}", fonts["tiny_bold"], bg=PURPLE, fg=WHITE, max_w=(x1 - x0) - 40)
+    _draw_label_pill(draw, cx, y1 - 22, f"RESULT: {params['result']}", fonts["tiny_bold"], bg=PURPLE, fg=WHITE, max_w=(x1 - x0) - 40)
 
 
 def _draw_mechanistic_diagram_card(
@@ -1602,14 +1604,14 @@ def _draw_mechanistic_diagram_card(
     seg_idx: int,
     local_t: float,
     fonts: dict,
-    discipline: str = "kimia",
+    discipline: str = "gadgets",
 ) -> None:
     """Draw a genuine 30fps comic-science mechanistic visual simulation (atoms, electrons, chains, receptors, waves, graphs)."""
     p = ease_out_back(local_t / 0.35)
     if p <= 0.05:
         return
 
-    card_x0, card_y0, card_x1, card_y1 = 56, 935, 1024, 1305
+    card_x0, card_y0, card_x1, card_y1 = 56, 910, 1024, 1275
     cy = (card_y0 + card_y1) // 2
     half_h = int(((card_y1 - card_y0) // 2) * min(p, 1.02))
     draw_comic_box(
@@ -1629,7 +1631,7 @@ def _draw_mechanistic_diagram_card(
     draw.rounded_rectangle([card_x0 + 18, card_y0 + 14, card_x1 - 18, card_y0 + 62], radius=16, fill=CARD_DARK)
     draw.text(
         ((card_x0 + card_x1) // 2, card_y0 + 38),
-        f"SIMULASI MEKANISME • {params['title'].upper()}",
+        f"MECHANISM SIMULATION • {params['title'].upper()}",
         font=fonts["tiny_bold"],
         fill=YELLOW,
         anchor="mm",
@@ -1659,7 +1661,7 @@ def _draw_references_card(
     appear_at: float,
     requested_by: Optional[str] = None,
 ) -> None:
-    """Draw animated 'THANK YOU FOR WATCHING!' + Follow @kimiabill CTA + Referensi & Sumber end-card."""
+    """Draw animated 'THANK YOU FOR WATCHING!' + Follow @handle CTA + Sources & References end-card."""
     if local_t < appear_at:
         return
     ot = local_t - appear_at
@@ -1667,7 +1669,7 @@ def _draw_references_card(
     if p <= 0.05:
         return
 
-    x0, y0, x1, y1 = 56, 955, 1024, 1375
+    x0, y0, x1, y1 = 56, 910, 1024, 1320
     cx = (x0 + x1) // 2
     cy = (y0 + y1) // 2
     hh = int(((y1 - y0) // 2) * min(p, 1.02))
