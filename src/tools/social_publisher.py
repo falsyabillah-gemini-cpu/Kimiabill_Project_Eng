@@ -27,6 +27,136 @@ def _format_full_caption(copy: PlatformCopy) -> str:
     return f"{copy.caption}\n\n{tags}".strip()
 
 
+def _get_youtube_access_token() -> str | None:
+    client_id = os.environ.get("YOUTUBE_CLIENT_ID")
+    client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
+    refresh_token = os.environ.get("YOUTUBE_REFRESH_TOKEN")
+    if not (client_id and client_secret and refresh_token):
+        return None
+    tok_resp = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        },
+        timeout=30,
+    )
+    tok_resp.raise_for_status()
+    return tok_resp.json()["access_token"]
+
+
+def schedule_or_publish_youtube_video(
+    video_id: str,
+    target_publish_iso: str | None = None,
+    first_comment: str = "",
+) -> dict[str, object]:
+    """Transition an unlisted YouTube draft to scheduled (private+publishAt) or immediate public."""
+    from datetime import datetime, timezone
+
+    if not video_id:
+        return {"ok": False, "error": "video_id is empty"}
+
+    now_utc = datetime.now(timezone.utc)
+    publish_at_utc: str | None = None
+    target_privacy = "public"
+    if target_publish_iso:
+        try:
+            target_dt = datetime.fromisoformat(target_publish_iso)
+            if target_dt.tzinfo is None:
+                target_dt = target_dt.replace(tzinfo=timezone.utc)
+            if target_dt.astimezone(timezone.utc) > now_utc:
+                target_privacy = "private"
+                publish_at_utc = target_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            pass
+
+    access_token = _get_youtube_access_token()
+    if access_token:
+        status_body: dict[str, object] = {
+            "privacyStatus": target_privacy,
+            "selfDeclaredMadeForKids": False,
+        }
+        if publish_at_utc:
+            status_body["publishAt"] = publish_at_utc
+        resp = requests.put(
+            "https://www.googleapis.com/youtube/v3/videos?part=status",
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            json={"id": video_id, "status": status_body},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        if first_comment and target_privacy == "public":
+            try:
+                requests.post(
+                    "https://www.googleapis.com/youtube/v3/commentThreads?part=snippet",
+                    headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+                    json={
+                        "snippet": {
+                            "videoId": video_id,
+                            "topLevelComment": {"snippet": {"textOriginal": first_comment[:800]}},
+                        }
+                    },
+                    timeout=25,
+                )
+            except Exception:
+                pass
+        return {"ok": True, "video_id": video_id, "privacy": target_privacy, "publish_at": publish_at_utc}
+
+    # Webhook fallback (Apps Script YOUTUBE_WEBHOOK_URL or GDRIVE_WEBHOOK_URL)
+    from src.tools.gdrive_sync import _normalize_webhook_url, _post_webhook, _resolve_youtube_webhook
+
+    raw_drive = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
+    yt_url, yt_tok = _resolve_youtube_webhook(raw_drive)
+    if not yt_url:
+        return {"ok": False, "error": "Neither YouTube OAuth nor Webhook is configured"}
+    payload: dict[str, object] = {
+        "action": "set_youtube_privacy",
+        "video_id": video_id,
+        "privacy": target_privacy,
+    }
+    if publish_at_utc:
+        payload["publish_at"] = publish_at_utc
+    if first_comment:
+        payload["first_comment"] = first_comment[:800]
+    res = _post_webhook(_normalize_webhook_url(yt_url), payload, timeout=60, token_override=yt_tok)
+    return res
+
+
+def delete_youtube_video(video_id: str) -> dict[str, object]:
+    """Delete an obsolete unlisted YouTube draft (OAuth or Apps Script webhook)."""
+    if not video_id:
+        return {"ok": True, "skipped": "no_video_id"}
+    access_token = _get_youtube_access_token()
+    if access_token:
+        resp = requests.delete(
+            f"https://www.googleapis.com/youtube/v3/videos?id={video_id}",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=30,
+        )
+        if resp.status_code in (200, 204, 404):
+            return {"ok": True, "deleted": video_id}
+        resp.raise_for_status()
+        return {"ok": True, "deleted": video_id}
+
+    from src.tools.gdrive_sync import _normalize_webhook_url, _post_webhook, _resolve_youtube_webhook
+
+    raw_drive = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
+    yt_url, yt_tok = _resolve_youtube_webhook(raw_drive)
+    if not yt_url:
+        return {"ok": False, "error": "No YouTube OAuth/Webhook configured"}
+    try:
+        return _post_webhook(
+            _normalize_webhook_url(yt_url),
+            {"action": "delete_youtube_video", "video_id": video_id},
+            timeout=60,
+            token_override=yt_tok,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 def _publish_youtube_shorts(
     video_path: Path,
     thumbnail_path: Path | None,
@@ -41,34 +171,18 @@ def _publish_youtube_shorts(
             detail="Dry-run: YouTube Shorts title, description, and thumbnail packaged.",
         )
 
-    client_id = os.environ.get("YOUTUBE_CLIENT_ID")
-    client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
-    refresh_token = os.environ.get("YOUTUBE_REFRESH_TOKEN")
-    if not (client_id and client_secret and refresh_token):
+    access_token = _get_youtube_access_token()
+    if not access_token:
         return PlatformPublishResult(
             platform="youtube_shorts",
             mode=mode,
             status="skipped_missing_creds",
-            detail="Set YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN in .env/Secrets for YouTube Shorts auto-upload.",
+            detail="Set YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN in .env/Secrets for YouTube Shorts direct upload.",
         )
-
-    # 1. Exchange refresh token for access token
-    tok_resp = requests.post(
-        "https://oauth2.googleapis.com/token",
-        data={
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "refresh_token": refresh_token,
-            "grant_type": "refresh_token",
-        },
-        timeout=30,
-    )
-    tok_resp.raise_for_status()
-    access_token = tok_resp.json()["access_token"]
     auth_hdr = {"Authorization": f"Bearer {access_token}"}
 
-    # 2. Initiate resumable upload to YouTube Data API v3
-    privacy = "public" if mode == "public" else "unlisted"
+    # Hard Rule: Production always uploads initial drafts as 'unlisted' unless explicitly overridden
+    privacy = "unlisted" if os.environ.get("ALLOW_DIRECT_PUBLIC", "false").lower() != "true" else ("public" if mode == "public" else "unlisted")
     metadata = {
         "snippet": {
             "title": copy.title[:95],
@@ -91,7 +205,6 @@ def _publish_youtube_shorts(
     init_resp.raise_for_status()
     upload_url = init_resp.headers["Location"]
 
-    # 3. Upload video binary
     with open(video_path, "rb") as vf:
         up_resp = requests.put(
             upload_url,
@@ -102,7 +215,6 @@ def _publish_youtube_shorts(
     up_resp.raise_for_status()
     vid_id = up_resp.json()["id"]
 
-    # 4. Upload custom thumbnail if available
     if thumbnail_path and thumbnail_path.exists():
         with open(thumbnail_path, "rb") as tf:
             requests.post(
@@ -115,7 +227,7 @@ def _publish_youtube_shorts(
     return PlatformPublishResult(
         platform="youtube_shorts",
         mode=mode,
-        status="published" if mode == "public" else "uploaded_draft",
+        status="uploaded_draft" if privacy == "unlisted" else "published",
         post_id=vid_id,
         post_url=f"https://youtube.com/shorts/{vid_id}",
         detail=f"Uploaded to YouTube Shorts (privacy={privacy}, category=Science & Technology).",

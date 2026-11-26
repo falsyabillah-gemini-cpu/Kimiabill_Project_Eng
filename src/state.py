@@ -62,22 +62,26 @@ class MechanismVisual(BaseModel):
         "receptor_binding",
         "force_wave",
         "math_geometry",
-    ] = "magnetic_induction"
+        "concept_comparison",
+        "micro_structure_callout",
+        "three_step_flow",
+        "stat_highlight",
+    ]
     title: str = Field(
-        default="HOW IT WORKS",
-        description="Short English simulation title, e.g. 'EDDY CURRENT COIL', 'ANTI-NOISE WAVE', or 'OLED SUBPIXELS'",
+        min_length=2,
+        description="Short English simulation title (<= 28 chars), e.g. 'EDDY CURRENT COIL' or 'NONSTICK PORE LOCK'",
     )
     actor_a: str = Field(
-        default="Input",
-        description="Short actor/component label (max 14 chars), e.g. 'Copper Coil', 'Li+ Ion', 'NFC Tag'",
+        min_length=2,
+        description="Specific component/species A label (max 14 chars), e.g. 'Copper Coil', 'Li+ Ion', 'Al Pores'",
     )
     actor_b: str = Field(
-        default="Process",
-        description="Second component/force label (max 14 chars), e.g. 'Eddy Current', 'Cathode', '13.56 MHz'",
+        min_length=2,
+        description="Specific component/species B label (max 14 chars), e.g. 'Eddy Current', 'Cathode', 'Hot PTFE'",
     )
     result: str = Field(
-        default="Output",
-        description="Outcome label (max 18 chars), e.g. 'Instant Heat', '3.7V Charge', 'Noise Canceled'",
+        min_length=2,
+        description="Accurate physical/tech outcome label (max 20 chars), e.g. 'Instant Heat', 'Mech Anchoring'",
     )
     caption: str = Field(
         default="",
@@ -95,16 +99,20 @@ class MechanismVisual(BaseModel):
 
 class SceneSpec(BaseModel):
     scene_id: str
-    narration: str = Field(description="Conversational English spoken line for this scene")
-    visual_query: str = Field(description="English search query for REAL video footage")
+    narration: str = Field(description="Clean standard American English narration/subtitle text for this scene")
+    visual_query: str = Field(description="Concrete 2-4 word English physical-object search query for REAL footage")
     fallback_queries: list[str] = Field(default_factory=list)
+    negative_keywords: list[str] = Field(
+        default_factory=list,
+        description="Tokens to reject for this shot (e.g. 'logo', 'text', 'watermark', 'presentation', 'lecture', 'intro', 'slide')",
+    )
     overlay_badge: Optional[str] = Field(
         default=None,
-        description="Optional short callout/formula badge ONLY if helpful (e.g. '13.56 MHz • NFC Coil')",
+        description="Optional short English callout badge (no Indonesian tokens, e.g. '13.56 MHz • NFC Coil')",
     )
     mechanism: Optional[MechanismVisual] = Field(
         default=None,
-        description="Structured visual mechanistic diagram spec (signals, electrons, waves, forces, materials, geometry)",
+        description="Structured English visual mechanistic diagram spec matching scientific facts",
     )
     sfx_cue: Optional[Literal["whoosh", "pop", "riser", "chime", "ding", "spark", "none"]] = "whoosh"
     motion: Literal["slow_zoom_in", "slow_zoom_out", "pan_right", "static"] = "slow_zoom_in"
@@ -117,7 +125,7 @@ class Agent3Output(BaseModel):
     hashtags: list[str]
     references: list[str] = Field(
         default_factory=list,
-        description="1-3 concise sci-tech references or source citations shown at the end of the video",
+        description="1-3 concise verified sci-tech references (journal/institution, year, URL/DOI) for YouTube description",
     )
     requested_by: Optional[str] = None
     scenes: list[SceneSpec] = Field(min_length=4, max_length=8)
@@ -132,6 +140,10 @@ class SceneAsset(BaseModel):
     duration_sec: float
     width: int
     height: int
+    footage_tier: str = Field(
+        default="tier_1_video",
+        description="Visual waterfall tier used: tier_1_video | tier_2_photo_ken_burns | tier_3_ai_scene_ken_burns",
+    )
     sfx_path: Optional[str] = None
     animation_sfx_path: Optional[str] = None
     notes: str = ""

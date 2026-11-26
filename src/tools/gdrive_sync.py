@@ -358,11 +358,13 @@ def _upload_via_webhook(
             pass
 
     if not allow_youtube:
-        youtube_note = f"DITAHAN OLEH AGENT 5 QA AUDITOR (tidak di-upload ke YouTube): {qa_summary}"
+        youtube_note = f"HELD BY AGENT 5 QA AUDITOR (not uploaded to YouTube): {qa_summary}"
         print(f"[youtube] {youtube_note}")
     elif video_file_id and publish_mode in ("draft", "public"):
         yt_copy = _extract_youtube_copy(episode_dir, title)
-        privacy = "public" if publish_mode == "public" else "unlisted"
+        # Hard Rule: Initial upload MUST always be 'unlisted' first before manual/AI Chief Editor approval
+        allow_direct = os.environ.get("ALLOW_DIRECT_PUBLIC", "false").strip().lower() == "true"
+        privacy = "public" if (allow_direct and publish_mode == "public") else "unlisted"
         yt_payload: dict[str, Any] = {
             "action": "upload_youtube",
             "video_file_id": video_file_id,
@@ -488,12 +490,14 @@ def _upload_via_webhook(
                 (hf_dir / "youtube_upload.json").write_text(
                     json.dumps(
                         {
+                            "video_id": video_id_yt,
                             "youtube_url": youtube_url,
                             "privacy": youtube_privacy,
                             "thumbnail_set": thumbnail_set,
                             "thumbnail_error": thumbnail_error or None,
                             "comment_posted": comment_posted,
                             "comment_error": comment_error or None,
+                            "drive_video_url": video_url,
                         },
                         indent=2,
                     ),
@@ -577,34 +581,33 @@ def _upload_via_webhook(
 
     tg_sent = False
     notify_email_also = os.environ.get("NOTIFY_EMAIL_ALSO", "true").strip().lower() == "true"
+    interactive_gate = os.environ.get("ENABLE_INTERACTIVE_AUDIT_GATE", "true").strip().lower() == "true"
     brand_upper = get_brand_name().upper()
-    try:
-        from src.tools.telegram_notify import send_telegram_message, send_telegram_video, telegram_enabled
+    if not interactive_gate:
+        try:
+            from src.tools.telegram_notify import send_telegram_message, send_telegram_video, telegram_enabled
 
-        if telegram_enabled():
-            yt_line = f"▶️ YouTube ({youtube_privacy or 'public'}): {youtube_url}" if youtube_url else f"⏳ YouTube: {youtube_note or '-'}"
-            tg_caption = "\n".join(
-                [
-                    f"🎬 [{brand_upper}] NEW VIDEO READY ({ep_sec_tag})",
-                    f"Title: {title}",
-                    f"Episode: {episode_name} | Pillar: {ep_disc} | QA: {ep_qa}/10",
-                    yt_line,
-                    f"📁 Drive: {folder_url}",
-                    *( [f"📊 Sheet: {sheet_url}"] if sheet_url else [] ),
-                    "",
-                    "💬 Feedback for NEXT VIDEO? Reply directly here.",
-                    "🔄 Need a full redo? Reply: /rerender <notes>",
-                ]
-            )
-            if preview_mp4_path and preview_mp4_path.exists():
-                tg_sent = send_telegram_video(preview_mp4_path, caption=tg_caption)
-            else:
-                tg_sent = send_telegram_message(tg_caption)
-            if tg_sent and captions_text:
-                send_telegram_message(f"📝 [{brand_upper}] Caption & Hashtags ({episode_name}):\n\n{captions_text[:3200]}")
-            print(f"[telegram] Preview video & episode status sent to Telegram (ok={tg_sent})")
-    except Exception as tg_exc:
-        print(f"[telegram] Warning: Telegram delivery failed (email fallback): {tg_exc}")
+            if telegram_enabled():
+                yt_line = f"▶️ YouTube ({youtube_privacy or 'unlisted'}): {youtube_url}" if youtube_url else f"⏳ YouTube: {youtube_note or '-'}"
+                tg_caption = "\n".join(
+                    [
+                        f"🎬 [{brand_upper}] NEW VIDEO READY ({ep_sec_tag})",
+                        f"Title: {title}",
+                        f"Episode: {episode_name} | Pillar: {ep_disc} | QA: {ep_qa}/10",
+                        yt_line,
+                        f"📁 Drive: {folder_url}",
+                        *( [f"📊 Sheet: {sheet_url}"] if sheet_url else [] ),
+                    ]
+                )
+                if preview_mp4_path and preview_mp4_path.exists():
+                    tg_sent = send_telegram_video(preview_mp4_path, caption=tg_caption)
+                else:
+                    tg_sent = send_telegram_message(tg_caption)
+                print(f"[telegram] Preview video & episode status sent to Telegram (ok={tg_sent})")
+        except Exception as tg_exc:
+            print(f"[telegram] Warning: Telegram delivery failed (email fallback): {tg_exc}")
+    else:
+        tg_sent = True  # Delivered by interactive 4-button Telegram Audit card after upload
 
     skip_email = bool(tg_sent and not notify_email_also)
     notif_status = "Telegram to owner" if skip_email else (f"Telegram + Email to {notify_to}" if tg_sent else f"Email to {notify_to}")

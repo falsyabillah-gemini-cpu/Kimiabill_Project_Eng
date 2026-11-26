@@ -23,19 +23,50 @@ def clear_brand_cache() -> None:
     load_brand_yaml.cache_clear()
 
 
-def get_brand_name() -> str:
+def get_brand_display_name() -> str:
     env_override = os.environ.get("BRAND_NAME", "").strip()
     if env_override:
         return env_override
-    return str(load_brand_yaml().get("brand", {}).get("name", "Bill_Explains")).strip()
+    b = load_brand_yaml().get("brand", {})
+    return str(b.get("brand_display_name") or b.get("name") or "Bill_Explains").strip()
+
+
+def get_brand_name() -> str:
+    return get_brand_display_name()
+
+
+def get_brand_spoken_name() -> str:
+    env_override = os.environ.get("BRAND_SPOKEN_NAME", "").strip()
+    if env_override:
+        return env_override
+    b = load_brand_yaml().get("brand", {})
+    raw = str(b.get("brand_spoken_name") or get_brand_display_name()).strip()
+    return " ".join(raw.replace("_", " ").replace("@", "").split()) or "Bill Explains"
 
 
 def get_brand_handle() -> str:
     env_override = os.environ.get("BRAND_HANDLE", "").strip()
     if env_override:
-        return env_override
-    handle = str(load_brand_yaml().get("brand", {}).get("handle", "@bill_explains")).strip()
+        return env_override if env_override.startswith("@") else f"@{env_override}"
+    b = load_brand_yaml().get("brand", {})
+    handle = str(b.get("brand_handle") or b.get("handle") or "@Bill_explains12").strip()
     return handle if handle.startswith("@") else f"@{handle}"
+
+
+def get_youtube_cta() -> str:
+    b = load_brand_yaml().get("brand", {})
+    cta = str(b.get("youtube_cta") or f"Subscribe to {get_brand_spoken_name()}").strip()
+    return cta
+
+
+def get_platform_cta(platform: str = "youtube_shorts") -> str:
+    b = load_brand_yaml().get("brand", {})
+    ctas = b.get("platform_ctas") or {}
+    if isinstance(ctas, dict) and ctas.get(platform):
+        return str(ctas[platform]).strip()
+    if platform == "youtube_shorts":
+        return get_youtube_cta()
+    return f"Follow {get_brand_spoken_name()}"
 
 
 def get_brand_slug() -> str:
@@ -65,7 +96,7 @@ def get_daily_slots_wib() -> list[str]:
     slots = load_brand_yaml().get("schedule", {}).get("daily_slots_wib")
     if isinstance(slots, list) and len(slots) >= 2:
         return [str(s).strip() for s in slots[:2]]
-    return ["04:00", "21:00"]
+    return ["21:00", "04:00"]
 
 
 def get_watermark_path() -> Path:

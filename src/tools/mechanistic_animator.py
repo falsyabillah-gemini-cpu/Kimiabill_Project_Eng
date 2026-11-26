@@ -1,9 +1,8 @@
-"""Hybrid 30fps Mechanistic Comic-Science Animation Engine for Kimiabill_videos.
+"""Hybrid 30fps Mechanistic Comic-Science Animation Engine for Bill_Explains.
 
 Renders crisp flat-vector comic-science animations (rounded cards with bold dark outlines,
-step-by-step molecular/physical simulations, animated counters/bars, diagonal wipe transitions,
-TERJAWAB! outro, and optional animated Opsi B Duo mascots) directly as 30fps RGBA frames
-piped into FFmpeg and composited cleanly over REAL video footage.
+12 domain-specialized Sci-Tech simulations + 4 safe neutral comparison/micro/flow/stat templates,
+diagonal wipe transitions, and Opsi B Duo mascots) composited cleanly over full-bleed 9:16 video.
 """
 from __future__ import annotations
 
@@ -107,7 +106,7 @@ def draw_comic_box(
     )
 
 
-from src.brand_config import get_brand_handle, get_brand_name, get_watermark_path
+from src.brand_config import get_brand_handle, get_brand_name, get_watermark_path, get_youtube_cta
 
 
 def draw_brand_pill(draw: ImageDraw.ImageDraw, fonts: dict) -> None:
@@ -116,7 +115,6 @@ def draw_brand_pill(draw: ImageDraw.ImageDraw, fonts: dict) -> None:
     x0, y0, x1, y1 = 48, 68, max(355, 130 + len(handle) * 20), 144
     draw.rounded_rectangle([x0 + 4, y0 + 6, x1 + 4, y1 + 6], radius=38, fill=(0, 0, 0, 120))
     draw.rounded_rectangle([x0, y0, x1, y1], radius=38, fill=(20, 26, 48, 225), outline=WHITE, width=4)
-    # Mini microchip icon (covered by Duo Mascot badge when watermark.png is present)
     fx, fy = x0 + 44, (y0 + y1) // 2
     for dxy in (-10, 0, 10):
         draw.line([(fx + dxy, fy - 20), (fx + dxy, fy + 20)], fill=CYAN, width=2)
@@ -151,6 +149,35 @@ def draw_mascot_watermark(
         canvas.alpha_composite(corner_stamp, (952, 815))
 
 
+def _fit_font(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    max_w: int,
+    min_size: int = 18,
+) -> tuple[ImageFont.FreeTypeFont, str]:
+    txt = " ".join((text or "").split()).strip()
+    if not txt:
+        return font, ""
+    use_f = font
+    bb = draw.textbbox((0, 0), txt, font=use_f)
+    if (bb[2] - bb[0]) <= max_w:
+        return use_f, txt
+    if getattr(font, "path", None) and getattr(font, "size", 0) > min_size:
+        for sz in range(int(font.size) - 2, min_size - 1, -2):
+            try:
+                cand = ImageFont.truetype(font.path, sz)
+                bb2 = draw.textbbox((0, 0), txt, font=cand)
+                use_f = cand
+                if (bb2[2] - bb2[0]) <= max_w:
+                    return use_f, txt
+            except Exception:
+                pass
+    while (draw.textbbox((0, 0), txt, font=use_f)[2] - draw.textbbox((0, 0), txt, font=use_f)[0]) > max_w and len(txt) > 5:
+        txt = txt[:-2].rstrip() + "…"
+    return use_f, txt
+
+
 def draw_header_pill(
     draw: ImageDraw.ImageDraw,
     text: str,
@@ -162,14 +189,15 @@ def draw_header_pill(
     scale = ease_out_back(local_t / 0.35)
     if scale <= 0.05:
         return
-    bbox = draw.textbbox((0, 0), text, font=fonts["header"])
+    use_f, fitted_txt = _fit_font(draw, text, fonts["header"], max_w=880, min_size=24)
+    bbox = draw.textbbox((0, 0), fitted_txt, font=use_f)
     tw = bbox[2] - bbox[0]
-    pw = int((tw + 84) * min(scale, 1.05))
+    pw = min(980, int((tw + 84) * min(scale, 1.05)))
     ph = int(76 * min(scale, 1.05))
     x0 = 540 - pw // 2
     y0 = y_center - ph // 2
     draw_comic_box(draw, (x0, y0, x0 + pw, y0 + ph), fill=bg_color, radius=24, border_w=5, shadow_offset=8)
-    draw_outlined_text(draw, (540, y_center), text, fonts["header"], fill=WHITE, stroke_w=4)
+    draw_outlined_text(draw, (540, y_center), fitted_txt, use_f, fill=WHITE, stroke_w=4)
 
 
 def draw_takeaway_card(
@@ -198,7 +226,8 @@ def draw_takeaway_card(
     draw_comic_box(draw, (x0, top_y, x0 + w, top_y + h), fill=CARD_BG, radius=26, border_w=5, shadow_offset=8)
     if p > 0.65:
         draw.text((center_x, top_y + 42), top_label, font=fonts["small_bold"], fill=INK, anchor="mm")
-        draw_outlined_text(draw, (center_x, top_y + 114), big_word, fonts["big_kw"], fill=big_color, stroke_w=5)
+        bw_f, bw_txt = _fit_font(draw, big_word, fonts["big_kw"], max_w=max(240, w - 56), min_size=34)
+        draw_outlined_text(draw, (center_x, top_y + 114), bw_txt, bw_f, fill=big_color, stroke_w=5)
         sy = top_y + 184
         for ln in sub_lines:
             draw.text((center_x, sy), ln, font=fonts["tiny_bold"], fill=(60, 68, 86, 255), anchor="mm")
@@ -209,7 +238,6 @@ def draw_diagonal_wipe(draw: ImageDraw.ImageDraw, progress: float, w: int = 1080
     """Multi-color diagonal comic wipe transition matching the reference videos."""
     if progress <= 0.0 or progress >= 1.0:
         return
-    # Sweep from right (+w+600) to left (-700)
     sweep_x = int((w + 700) - progress * (w + 1500))
     skew = 320
     bands = [
@@ -229,7 +257,7 @@ def draw_diagonal_wipe(draw: ImageDraw.ImageDraw, progress: float, w: int = 1080
 
 
 def draw_sunburst_bg(w: int, h: int, angle_offset: float = 0.0) -> Image.Image:
-    """Warm golden comic sunburst background for the TERJAWAB! outro."""
+    """Warm golden comic sunburst background."""
     img = Image.new("RGBA", (w, h), (255, 194, 34, 255))
     draw = ImageDraw.Draw(img)
     cx, cy = w // 2, int(h * 0.45)
@@ -716,15 +744,16 @@ def draw_scene6_solution_and_outro(
             stroke_w=6,
         )
 
-        # Follow brand handle button
+        # Subscribe CTA button (YouTube Shorts compliant)
         if ot >= 0.45:
             fp = ease_out_back((ot - 0.45) / 0.35)
-            bw = int(600 * min(fp, 1.03))
+            bw = int(660 * min(fp, 1.03))
             bh = int(96 * min(fp, 1.03))
             bx = 540 - bw // 2
             by = 665 + y_shift - bh // 2
-            draw_comic_box(draw, (bx, by, bx + bw, by + bh), fill=BLUE, outline=WHITE, radius=48, border_w=6, shadow_offset=8)
-            draw_outlined_text(draw, (540, 665 + y_shift), f"Follow {get_brand_handle()}", fonts["header"], fill=WHITE, stroke_w=4)
+            draw_comic_box(draw, (bx, by, bx + bw, by + bh), fill=RED, outline=WHITE, radius=48, border_w=6, shadow_offset=8)
+            cta_f, cta_txt = _fit_font(draw, get_youtube_cta(), fonts["header"], max_w=600, min_size=24)
+            draw_outlined_text(draw, (540, 665 + y_shift), cta_txt, cta_f, fill=WHITE, stroke_w=4)
 
         if mascots:
             mascots.paste(canvas, "male_celebrate", center_x=320, bottom_y=1295, target_h=455, local_t=ot, appear_at=0.10)
@@ -1007,94 +1036,45 @@ def _prepare_smart_real_footage_base(
     height: int = 1920,
     fps: int = 30,
 ) -> Path:
-    """Prepare crisp, non-overzoomed real footage base for vertical 9:16 video.
+    """Prepare crisp full-screen 1080x1920 visual base (eliminates cramped 16:9 box over static blur).
 
-    - Vertical/square clips (aspect <= 1.15): fill 9:16 cleanly with Lanczos scaling.
-    - Landscape clips (aspect > 1.15): render a softly blurred dark background fill + crisp
-      un-zoomed foreground video window in the upper-middle frame so scientific details stay sharp!
+    Portrait assets fill 9:16 natively; landscape assets apply clean proportional center-crop to 9:16.
     """
     seg_dir = work_dir / f"smart_base_{width}x{height}"
     seg_dir.mkdir(parents=True, exist_ok=True)
     seg_files: list[Path] = []
 
-    # Landscape foreground window: full frame width, ~33.3% of frame height (1080x640, near 16:9).
-    # Sharp and un-zoomed, leaving y=945..1345 completely clean for the animated mechanistic simulation!
-    fg_w = width - (width % 2)
-    fg_h = int(height * 0.333)
-    fg_h -= fg_h % 2
-    fg_y = int(height * 0.15)
-
     for seg in plan.segments:
         out_seg = seg_dir / f"{seg.scene_id}.mp4"
-        src_w, src_h = _probe_video_dims(seg.footage_path)
-        aspect = (src_w / src_h) if src_h > 0 else 1.77
-
-        if aspect > 1.15:
-            # Landscape clip: blurred dark backdrop + sharp, full-frame foreground (NO brutal 3x crop!)
-            filter_complex = (
-                f"[0:v]split=2[bg0][fg0];"
-                f"[bg0]scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,"
-                f"crop={width}:{height},gblur=sigma=24,eq=brightness=-0.22:saturation=0.80[bg];"
-                f"[fg0]scale={fg_w}:{fg_h}:force_original_aspect_ratio=increase:flags=lanczos,"
-                f"crop={fg_w}:{fg_h},eq=contrast=1.05:saturation=1.08[fg];"
-                f"[bg][fg]overlay=(W-w)/2:{fg_y}:shortest=1,fps={fps},format=yuv420p[vout]"
-            )
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-stream_loop",
-                "-1",
-                "-ss",
-                f"{seg.footage_start_offset:.2f}",
-                "-i",
-                seg.footage_path,
-                "-t",
-                f"{seg.duration_sec:.3f}",
-                "-filter_complex",
-                filter_complex,
-                "-map",
-                "[vout]",
-                "-an",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "veryfast",
-                "-crf",
-                "20",
-                "-pix_fmt",
-                "yuv420p",
-                str(out_seg),
-            ]
-        else:
-            vf = (
-                f"scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,"
-                f"crop={width}:{height},fps={fps},"
-                f"eq=contrast=1.05:saturation=1.06:brightness=-0.03,format=yuv420p"
-            )
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-stream_loop",
-                "-1",
-                "-ss",
-                f"{seg.footage_start_offset:.2f}",
-                "-i",
-                seg.footage_path,
-                "-t",
-                f"{seg.duration_sec:.3f}",
-                "-vf",
-                vf,
-                "-an",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "veryfast",
-                "-crf",
-                "20",
-                "-pix_fmt",
-                "yuv420p",
-                str(out_seg),
-            ]
+        vf = (
+            f"scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,"
+            f"crop={width}:{height},fps={fps},"
+            f"eq=contrast=1.05:saturation=1.07:brightness=-0.02,format=yuv420p"
+        )
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-stream_loop",
+            "-1",
+            "-ss",
+            f"{seg.footage_start_offset:.2f}",
+            "-i",
+            seg.footage_path,
+            "-t",
+            f"{seg.duration_sec:.3f}",
+            "-vf",
+            vf,
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+            "-pix_fmt",
+            "yuv420p",
+            str(out_seg),
+        ]
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         seg_files.append(out_seg)
 
@@ -1214,21 +1194,38 @@ _ACCENT_COLOR_MAP: dict[str, tuple[int, int, int, int]] = {
 }
 
 
+_FORBIDDEN_RAW_PLACEHOLDERS: frozenset[str] = frozenset({
+    "input", "output", "process", "mechanism", "molecule a", "molecule b",
+    "molekul a", "molekul b", "placeholder", "todo", "none", "undefined", "null", "n/a",
+})
+
+
+def _validate_real_diagram_label(value: str, field_name: str) -> str:
+    clean = " ".join((value or "").strip().split())
+    if not clean or len(clean) < 2 or clean.lower() in _FORBIDDEN_RAW_PLACEHOLDERS:
+        raise ValueError(f"Invalid placeholder diagram field '{field_name}': {value!r}")
+    return clean
+
+
 def _infer_mechanism_params(seg: TimelineSegment, discipline: str = "gadgets") -> dict[str, str]:
-    """Return structured Sci-Tech mechanism params from seg.mechanism, mechanism_bank presets, or domain keywords."""
+    """Return strictly validated Sci-Tech mechanism params from seg.mechanism or verified bank presets."""
     from src.tools.mechanism_bank import load_mechanism_bank, resolve_preset_style
 
     if seg.mechanism is not None:
         m = seg.mechanism
         preset_meta = resolve_preset_style(getattr(m, "preset_id", None))
         accent = getattr(m, "accent_color", None) or preset_meta.get("accent_color") or ""
+        title_v = _validate_real_diagram_label(m.title or str(preset_meta.get("label_title") or ""), "title")
+        a_v = _validate_real_diagram_label(m.actor_a or str(preset_meta.get("default_actor_a") or ""), "actor_a")
+        b_v = _validate_real_diagram_label(m.actor_b or str(preset_meta.get("default_actor_b") or ""), "actor_b")
+        res_v = _validate_real_diagram_label(m.result or str(preset_meta.get("default_result") or ""), "result")
         return {
             "kind": m.kind,
-            "title": _smart_trim(m.title or preset_meta.get("label_title") or "SCI-TECH MECHANISM", 34),
-            "actor_a": _smart_trim(m.actor_a or preset_meta.get("default_actor_a") or "Input", 16),
-            "actor_b": _smart_trim(m.actor_b or preset_meta.get("default_actor_b") or "Process", 16),
-            "result": _smart_trim(m.result or preset_meta.get("default_result") or "Output", 22),
-            "caption": _smart_trim(m.caption or "", 54),
+            "title": _smart_trim(title_v, 32),
+            "actor_a": _smart_trim(a_v, 16),
+            "actor_b": _smart_trim(b_v, 16),
+            "result": _smart_trim(res_v, 22),
+            "caption": _smart_trim(m.caption or "", 52),
             "accent_color": str(accent).strip().lower(),
         }
 
@@ -1248,67 +1245,19 @@ def _infer_mechanism_params(seg: TimelineSegment, discipline: str = "gadgets") -
         if best_preset is not None:
             return {
                 "kind": str(best_preset.get("engine_kind") or "magnetic_induction"),
-                "title": _smart_trim(str(best_preset.get("label_title") or "SCI-TECH MECHANISM"), 34),
-                "actor_a": _smart_trim(str(best_preset.get("default_actor_a") or "Input"), 16),
-                "actor_b": _smart_trim(str(best_preset.get("default_actor_b") or "Process"), 16),
-                "result": _smart_trim(str(best_preset.get("default_result") or "Output"), 22),
+                "title": _smart_trim(str(best_preset["label_title"]), 32),
+                "actor_a": _smart_trim(str(best_preset["default_actor_a"]), 16),
+                "actor_b": _smart_trim(str(best_preset["default_actor_b"]), 16),
+                "result": _smart_trim(str(best_preset["default_result"]), 22),
                 "caption": _smart_trim(seg.overlay_badge or seg.narration, 50),
                 "accent_color": str(best_preset.get("accent_color") or "").strip().lower(),
             }
     except Exception:
         pass
 
-    if any(k in blob for k in ("induction", "coil", "nfc", "eddy", "magnetic", "stator", "rotor", "wireless charg", "traffic loop")):
-        kind = "magnetic_induction"
-        default_title = "MAGNETIC INDUCTION & COIL"
-    elif any(k in blob for k in ("chip", "microchip", "touchscreen", "capacitive", "face id", "dot projector", "circuit", "sensor", "processor")):
-        kind = "circuit_signal"
-        default_title = "CIRCUIT & SENSOR SIGNAL"
-    elif any(k in blob for k in ("oled", "led", "pixel", "photon", "solar", "ppg", "albedo", "infrared", "laser", "light")):
-        kind = "optical_emission"
-        default_title = "OPTICAL & PHOTON EMISSION"
-    elif any(k in blob for k in ("expansion", "fridge", "refrigerant", "convection", "air fryer", "thermal", "heat", "boil", "steam", "temperature")):
-        kind = "phase_thermal"
-        default_title = "THERMAL & PHASE PHYSICS"
-    elif any(k in blob for k in ("filter", "activated carbon", "pore", "ceramic", "solid state", "solid-state", "separator", "bleed hole", "osmosis")):
-        kind = "membrane_transport"
-        default_title = "SELECTIVE BARRIER & PORES"
-    elif any(k in blob for k in ("gorilla", "potassium", "tempered", "chromium", "lattice", "crystal", "stainless", "alloy")):
-        kind = "crystal_lattice"
-        default_title = "ATOMIC LATTICE ARMOR"
-    elif any(k in blob for k in ("polymer", "plastic", "foam", "crosslink", "stretch", "bend", "fiber", "memory foam")):
-        kind = "polymer_crosslink"
-        default_title = "POLYMER CHAIN MECHANICS"
-    elif any(k in blob for k in ("electron", "battery", "ion", "charge", "voltage", "current", "corona", "redox")):
-        kind = "electron_transfer"
-        default_title = "ELECTRON & CHARGE FLOW"
-    elif any(k in blob for k in ("melanopsin", "brain", "receptor", "nerve", "ear", "vestibular", "enzyme")):
-        kind = "receptor_binding"
-        default_title = "BIOSENSOR & RECEPTOR"
-    elif any(k in blob for k in ("wave", "sound", "noise", "frequency", "microwave", "acoustic", "wind", "blade", "turbine")):
-        kind = "force_wave"
-        default_title = "WAVE & FORCE MECHANICS"
-    elif any(k in blob for k in ("80%", "curve", "ratio", "exponential", "graph", "computational", "algorithm")):
-        kind = "math_geometry"
-        default_title = "SYSTEM CURVE & SCALING"
-    else:
-        kind = "molecular_reaction"
-        default_title = "SURFACE & TECH REACTION"
-
-    badge = (seg.overlay_badge or "").strip()
-    parts = [p.strip() for p in re.split(r"\s*(?:→|->|=>|=|\+)\s*", badge) if p.strip()]
-    actor_a = _smart_trim(parts[0], 16) if len(parts) >= 1 else "Input"
-    actor_b = _smart_trim(parts[1], 16) if len(parts) >= 2 else "Mechanism"
-    result = _smart_trim(parts[-1], 22) if len(parts) >= 3 else (_smart_trim(parts[1], 22) if len(parts) == 2 else "Output")
-    return {
-        "kind": kind,
-        "title": default_title,
-        "actor_a": actor_a,
-        "actor_b": actor_b,
-        "result": result,
-        "caption": _smart_trim(badge, 54) if badge else _smart_trim(seg.narration, 50),
-        "accent_color": "",
-    }
+    raise ValueError(
+        f"Scene {seg.scene_id} missing structured `mechanism` JSON and did not match any verified mechanism_bank preset; retry Agent 3."
+    )
 
 
 def _draw_label_pill(
@@ -1538,7 +1487,7 @@ def _anim_molecular_reaction(
         r_pulse = int(26 + 14 * math.sin(t * 8))
         draw.ellipse([cx - r_pulse, cy - r_pulse, cx + r_pulse, cy + r_pulse], outline=ORANGE, width=5)
 
-    lbl = f"BOND FORMED: {params['result']}" if bonded else f"{params['actor_a']} + {params['actor_b']} → REACTION"
+    lbl = params["result"] if bonded else f"{params['actor_a']} + {params['actor_b']}"
     _draw_label_pill(
         draw, cx, y1 - 22, lbl, fonts["tiny_bold"],
         bg=(18, 132, 74, 255) if bonded else CARD_DARK, fg=WHITE if bonded else YELLOW,
@@ -1912,6 +1861,127 @@ def _anim_crystal_lattice(
     _draw_label_pill(draw, cx, y1 - 22, f"LATTICE: {params['result']}", fonts["tiny_bold"], bg=BLUE, fg=WHITE, max_w=(x1 - x0) - 40)
 
 
+def _anim_concept_comparison(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Safe neutral side-by-side comparison of two real objects/states without inventing bonds."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = y0 + 115
+    prog = ease_out_cubic(clamp(t / max(dur * 0.65, 1.2)))
+    half_w = int(((x1 - x0) // 2 - 42) * max(0.35, prog))
+
+    # Left card
+    lx0, lx1 = cx - 22 - half_w, cx - 22
+    draw.rounded_rectangle([lx0, y0 + 26, lx1, y1 - 54], radius=18, fill=(239, 246, 255, 255), outline=BLUE, width=4)
+    _draw_label_pill(draw, (lx0 + lx1) // 2, cy - 16, params["actor_a"], fonts["small_bold"], bg=BLUE, fg=WHITE, max_w=max(120, half_w - 28))
+
+    # VS badge
+    draw.ellipse([cx - 22, cy - 22, cx + 22, cy + 22], fill=ORANGE, outline=INK, width=3)
+    draw.text((cx, cy), "VS", font=fonts["micro_bold"], fill=WHITE, anchor="mm")
+
+    # Right card
+    rx0, rx1 = cx + 22, cx + 22 + half_w
+    draw.rounded_rectangle([rx0, y0 + 26, rx1, y1 - 54], radius=18, fill=(240, 253, 244, 255), outline=GREEN, width=4)
+    _draw_label_pill(draw, (rx0 + rx1) // 2, cy - 16, params["actor_b"], fonts["small_bold"], bg=GREEN, fg=WHITE, max_w=max(120, half_w - 28))
+
+    _draw_label_pill(draw, cx, y1 - 22, params["result"], fonts["tiny_bold"], bg=CARD_DARK, fg=YELLOW, max_w=(x1 - x0) - 40)
+
+
+def _anim_micro_structure_callout(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Safe neutral microscopic topography zoom frame linking surface/structure to behavior."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = y0 + 118
+    prog = clamp(t / max(dur * 0.75, 1.5))
+
+    # Macro surface on left -> dashed zoom cone -> magnified micro pores/ridges on right
+    mx = x0 + 180
+    draw.rounded_rectangle([mx - 95, cy - 42, mx + 95, cy + 42], radius=16, fill=IRON_GRAY, outline=INK, width=4)
+    _draw_label_pill(draw, mx, cy, params["actor_a"], fonts["micro_bold"], bg=CARD_DARK, fg=WHITE, max_w=175)
+
+    zx = x1 - 205
+    r_zoom = int(58 + 10 * ease_out_back(prog))
+    draw.ellipse([zx - r_zoom, cy - r_zoom, zx + r_zoom, cy + r_zoom], fill=(224, 242, 254, 255), outline=BLUE, width=5)
+    # Concentric micro ridges inside lens
+    for k in range(3):
+        off = (k - 1) * 22
+        draw.arc([zx - 46, cy + off - 12, zx + 46, cy + off + 12], start=0, end=180, fill=INK, width=4)
+    _draw_label_pill(draw, zx, cy + 48, params["actor_b"], fonts["micro_bold"], bg=BLUE, fg=WHITE, max_w=240)
+    draw.line([(mx + 95, cy - 20), (zx - r_zoom, cy - r_zoom + 16)], fill=CYAN, width=4)
+    draw.line([(mx + 95, cy + 20), (zx - r_zoom, cy + r_zoom - 16)], fill=CYAN, width=4)
+
+    _draw_label_pill(draw, cx, y1 - 22, params["result"], fonts["tiny_bold"], bg=(18, 132, 74, 255), fg=WHITE, max_w=(x1 - x0) - 40)
+
+
+def _anim_three_step_flow(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Safe neutral 3-stage process progression highlighting actor_a -> actor_b -> result."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = y0 + 114
+    prog = clamp(t / max(dur * 0.78, 1.5))
+    active_step = 0 if prog < 0.34 else (1 if prog < 0.68 else 2)
+
+    xs = [x0 + 150, cx, x1 - 150]
+    labels = [params["actor_a"], params["actor_b"], params["result"]]
+    cols = [BLUE, PURPLE, GREEN]
+    for i in range(3):
+        is_active = i <= active_step
+        bg = cols[i] if is_active else IRON_GRAY
+        _draw_label_pill(draw, xs[i], cy, f"{i + 1}. {labels[i]}", fonts["micro_bold"], bg=bg, fg=WHITE, max_w=240)
+        if i < 2:
+            ax0, ax1 = xs[i] + 108, xs[i + 1] - 108
+            if ax1 > ax0:
+                draw.line([(ax0, cy), (ax1, cy)], fill=ORANGE if i < active_step else INK, width=5)
+                draw.polygon([(ax1 + 8, cy), (ax1 - 6, cy - 9), (ax1 - 6, cy + 9)], fill=ORANGE if i < active_step else INK)
+
+    _draw_label_pill(draw, cx, y1 - 22, params["title"], fonts["tiny_bold"], bg=CARD_DARK, fg=YELLOW, max_w=(x1 - x0) - 40)
+
+
+def _anim_stat_highlight(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    t: float,
+    dur: float,
+    params: dict[str, str],
+    fonts: dict,
+) -> None:
+    """Safe neutral animated quantitative metric & comparison highlight bar."""
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    prog = ease_out_cubic(clamp(t / max(dur * 0.72, 1.4)))
+
+    _draw_label_pill(draw, cx, y0 + 34, f"{params['actor_a']} → {params['actor_b']}", fonts["small_bold"], bg=BLUE, fg=WHITE, max_w=(x1 - x0) - 60)
+    bar_x0, bar_y0, bar_x1, bar_y1 = x0 + 60, y0 + 96, x1 - 60, y0 + 162
+    draw.rounded_rectangle([bar_x0, bar_y0, bar_x1, bar_y1], radius=24, fill=CARD_DARK, outline=INK, width=4)
+    fill_w = max(48, int((bar_x1 - bar_x0 - 8) * prog))
+    draw.rounded_rectangle([bar_x0 + 4, bar_y0 + 4, bar_x0 + 4 + fill_w, bar_y1 - 4], radius=20, fill=GREEN if prog > 0.6 else ORANGE)
+    res_f, res_txt = _fit_font(draw, params["result"], fonts["small_bold"], max_w=(bar_x1 - bar_x0) - 40, min_size=18)
+    draw_outlined_text(draw, (cx, (bar_y0 + bar_y1) // 2), res_txt, res_f, fill=WHITE, stroke_w=3)
+
+    if params.get("caption"):
+        _draw_label_pill(draw, cx, y1 - 22, params["caption"], fonts["micro_bold"], bg=CARD_DARK, fg=YELLOW, max_w=(x1 - x0) - 40)
+
+
 def _draw_mechanistic_diagram_card(
     draw: ImageDraw.ImageDraw,
     seg: TimelineSegment,
@@ -1920,7 +1990,7 @@ def _draw_mechanistic_diagram_card(
     fonts: dict,
     discipline: str = "gadgets",
 ) -> None:
-    """Draw a genuine 30fps comic-science mechanistic visual simulation across 12 Sci-Tech engines + dynamic bank presets."""
+    """Draw a 30fps comic-science simulation across 12 Sci-Tech engines + 4 safe neutral templates."""
     p = ease_out_back(local_t / 0.35)
     if p <= 0.05:
         return
@@ -1944,10 +2014,17 @@ def _draw_mechanistic_diagram_card(
 
     header_fg = _ACCENT_COLOR_MAP.get(params.get("accent_color") or "", YELLOW)
     draw.rounded_rectangle([card_x0 + 18, card_y0 + 14, card_x1 - 18, card_y0 + 62], radius=16, fill=CARD_DARK)
+    hdr_f, hdr_txt = _fit_font(
+        draw,
+        params["title"].upper(),
+        fonts["tiny_bold"],
+        max_w=(card_x1 - card_x0) - 68,
+        min_size=16,
+    )
     draw.text(
         ((card_x0 + card_x1) // 2, card_y0 + 38),
-        f"MECHANISM SIMULATION • {params['title'].upper()}",
-        font=fonts["tiny_bold"],
+        hdr_txt,
+        font=hdr_f,
         fill=header_fg,
         anchor="mm",
     )
@@ -1976,88 +2053,51 @@ def _draw_mechanistic_diagram_card(
         _anim_force_wave(draw, sim_box, local_t, seg.duration_sec, params, fonts)
     elif kind == "math_geometry":
         _anim_math_geometry(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "concept_comparison":
+        _anim_concept_comparison(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "micro_structure_callout":
+        _anim_micro_structure_callout(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "three_step_flow":
+        _anim_three_step_flow(draw, sim_box, local_t, seg.duration_sec, params, fonts)
+    elif kind == "stat_highlight":
+        _anim_stat_highlight(draw, sim_box, local_t, seg.duration_sec, params, fonts)
     else:
         _anim_molecular_reaction(draw, sim_box, local_t, seg.duration_sec, params, fonts)
 
 
-def _draw_references_card(
+def _draw_subscribe_badge(
     draw: ImageDraw.ImageDraw,
-    references: list[str],
     fonts: dict,
     local_t: float,
     appear_at: float,
     requested_by: Optional[str] = None,
 ) -> None:
-    """Draw animated 'THANK YOU FOR WATCHING!' + Follow @handle CTA + Sources & References end-card."""
+    """Subtle compact 1.5s animated Subscribe CTA badge above subtitles (replaces static dead outro cards)."""
     if local_t < appear_at:
         return
     ot = local_t - appear_at
-    p = ease_out_back(ot / 0.35)
-    if p <= 0.05:
+    p = ease_out_back(ot / 0.25)
+    if p <= 0.08:
         return
-
-    x0, y0, x1, y1 = 56, 910, 1024, 1320
-    cx = (x0 + x1) // 2
-    cy = (y0 + y1) // 2
-    hh = int(((y1 - y0) // 2) * min(p, 1.02))
-    draw_comic_box(draw, (x0, cy - hh, x1, cy + hh), fill=CARD_DARK, outline=YELLOW, radius=28, border_w=6, shadow_offset=10)
-    if p < 0.65:
-        return
-
-    # 1. Animated "THANK YOU FOR WATCHING!" banner with twinkling sparkles
-    bob = int(4 * math.sin(ot * 6.0))
-    draw_outlined_text(
-        draw,
-        (cx, y0 + 44 + bob),
-        "THANK YOU FOR WATCHING!",
-        fonts["summary"],
-        fill=YELLOW,
-        outline_color=INK,
-        stroke_w=5,
-    )
-    # Animated star/sparkle dots flanking the title
-    for side in (-1, 1):
-        sx = cx + side * 375
-        sy = y0 + 44 + int(6 * math.cos(ot * 7.0 + side))
-        sr = 8 + int(4 * math.sin(ot * 9.0 + side))
-        draw.ellipse([sx - sr, sy - sr, sx + sr, sy + sr], fill=CYAN, outline=WHITE, width=2)
-
-    # 2. Animated pulsing Follow & Comment-Request CTA pill
-    cta_pulse = int(3 * math.sin(ot * 8.0))
-    handle_upper = get_brand_handle().upper()
+    pulse_y = int(3 * math.sin(ot * 8.0))
     cta_txt = (
-        f"★ THANKS {requested_by[:16].upper()}! DROP MORE REQUESTS! ★"
+        f"★ THANKS {requested_by[:16].upper()}! {get_youtube_cta().upper()} ★"
         if requested_by
-        else f"★ FOLLOW {handle_upper} • REQUEST TOPICS BELOW! ★"
+        else f"▶ {get_youtube_cta().upper()} • {get_brand_handle()}"
     )
     _draw_label_pill(
         draw,
-        cx,
-        y0 + 106 - cta_pulse,
+        540,
+        1245 - pulse_y,
         cta_txt,
         fonts["tiny_bold"],
         bg=RED,
         fg=WHITE,
         outline=YELLOW,
-        pad_x=22,
+        pad_x=24,
         pad_y=10,
-        max_w=(x1 - x0) - 48,
+        max_w=900,
     )
-
-    # 3. Divider + Sources & References bibliography
-    draw.line([(x0 + 34, y0 + 148), (x1 - 34, y0 + 148)], fill=(255, 255, 255, 95), width=2)
-    draw.text((x0 + 34, y0 + 162), "SOURCES & REFERENCES:", font=fonts["tiny_bold"], fill=YELLOW, anchor="lt")
-
-    ty = y0 + 198
-    refs_to_show = references[:3] if references else [f"{get_brand_name()} Editorial & Wikimedia Commons (CC)"]
-    for idx, ref in enumerate(refs_to_show, start=1):
-        wrapped = _wrap_text(draw, f"{idx}. {ref}", fonts["micro_bold"], (x1 - x0) - 72, max_lines=2)
-        for ln in wrapped:
-            if ty + 24 > y1 - 14:
-                break
-            draw.text((x0 + 36, ty), ln, font=fonts["micro_bold"], fill=WHITE, anchor="lt")
-            ty += 26
-        ty += 4
 
 
 def render_hybrid_science_video(
@@ -2068,7 +2108,7 @@ def render_hybrid_science_video(
     mascots_dir: Optional[Path] = None,
     use_mascot: bool = True,
 ) -> tuple[str, str]:
-    """Universal hybrid comic-science renderer (works for ANY pure-science topic & both 480p proxy / 1080p HD)."""
+    """Universal hybrid comic-science renderer (full-bleed 9:16 real visuals + 30fps English diagrams)."""
     is_final = plan.resolution_mode == "final_1080p"
     out_w, out_h, fps = (1080, 1920, 30) if is_final else (480, 854, 15)
     canvas_w, canvas_h = 1080, 1920
@@ -2104,7 +2144,6 @@ def render_hybrid_science_video(
         except Exception:
             cover_overlay_img = None
 
-    # Pre-render bottom gradient scrim at 1080x1920
     bot_scrim = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
     bsd = ImageDraw.Draw(bot_scrim)
     for y in range(1240, canvas_h, 4):
@@ -2147,10 +2186,10 @@ def render_hybrid_science_video(
         "-c:v",
         "libx264",
         "-preset",
-        "medium" if is_final else "veryfast",
+        "veryfast",
         "-crf",
-        "22" if is_final else "24",
-        *(["-maxrate", "3200k", "-bufsize", "6400k"] if is_final else []),
+        "21" if is_final else "24",
+        *(["-maxrate", "3400k", "-bufsize", "6800k"] if is_final else []),
         "-c:a",
         "aac",
         "-b:a",
@@ -2177,7 +2216,7 @@ def render_hybrid_science_video(
     try:
         for f_idx in range(total_frames):
             t_global = f_idx / fps
-            if cover_overlay_img is not None and t_global < 0.32:
+            if cover_overlay_img is not None and t_global < 0.25:
                 proc.stdin.write(cover_overlay_img.tobytes())
                 continue
 
@@ -2200,7 +2239,6 @@ def render_hybrid_science_video(
                 sec_tag = getattr(plan, "section_tag", "EVERYDAY_TECH")
                 is_radar = sec_tag == "TECH_RADAR"
                 req_by = getattr(plan, "requested_by", None)
-                # Ensure frame 0 (t=0.0) already displays a full-contrast visual cover hook
                 cover_t = local_t + 0.45
                 draw_header_pill(
                     draw,
@@ -2225,7 +2263,6 @@ def render_hybrid_science_video(
                         max_w=860,
                     )
                 if plan.title:
-                    # Show crisp, bold curiosity title prominently right from frame 0
                     box_y0, box_y1 = 990, 1260
                     draw_comic_box(draw, (80, box_y0, 1000, box_y1), fill=CARD_BG, outline=INK, radius=28, border_w=6, shadow_offset=10)
                     eyebrow = (
@@ -2246,7 +2283,7 @@ def render_hybrid_science_video(
                         pad_y=7,
                         max_w=780,
                     )
-                    title_font = fonts["header"]
+                    title_font, _ = _fit_font(draw, plan.title, fonts["header"], max_w=840, min_size=28)
                     t_lines = _wrap_text(draw, plan.title, title_font, 840, max_lines=3)
                     line_step = 50
                     ty = box_y0 + 105 + max(0, (3 - len(t_lines)) * 18)
@@ -2257,22 +2294,21 @@ def render_hybrid_science_video(
                     mascots.paste(canvas, "male_curious", center_x=115, bottom_y=1335, target_h=175, local_t=cover_t, appear_at=0.0)
                     mascots.paste(canvas, "female_curious", center_x=965, bottom_y=1335, target_h=175, local_t=cover_t, appear_at=0.0)
             elif is_last:
-                # Final scene: ANSWERED! + celebrating duo mascots + Thank You / Follow / Sources end-card
-                outro_start = max(0.15, seg.duration_sec - 4.5)
-                draw_header_pill(draw, "ANSWERED!", GREEN, fonts, local_t, y_center=225)
-                _draw_references_card(
+                # Zero static outro card: end right after the aha moment with crisp footage + 1.5s Subscribe badge
+                draw_header_pill(draw, "THE REAL ANSWER", GREEN, fonts, local_t, y_center=225)
+                if seg.mechanism is not None:
+                    _draw_mechanistic_diagram_card(draw, seg, seg_idx, local_t, fonts, discipline=plan.discipline)
+                _draw_subscribe_badge(
                     draw,
-                    plan.references,
                     fonts,
                     local_t,
-                    appear_at=outro_start,
+                    appear_at=max(0.2, seg.duration_sec - 1.5),
                     requested_by=getattr(plan, "requested_by", None),
                 )
                 if mascots:
-                    mascots.paste(canvas, "male_celebrate", center_x=170, bottom_y=940, target_h=220, local_t=local_t, appear_at=0.1)
-                    mascots.paste(canvas, "female_celebrate", center_x=910, bottom_y=940, target_h=220, local_t=local_t, appear_at=0.2)
+                    mascots.paste(canvas, "male_celebrate", center_x=115, bottom_y=1335, target_h=175, local_t=local_t, appear_at=0.1)
+                    mascots.paste(canvas, "female_celebrate", center_x=965, bottom_y=1335, target_h=175, local_t=local_t, appear_at=0.15)
             else:
-                # Middle scenes: Genuine 30fps mechanistic simulation + alternating mascot
                 h_col = header_colors[seg_idx % len(header_colors)]
                 draw_header_pill(draw, f"STEP {seg_idx} • HOW IT WORKS", h_col, fonts, local_t, y_center=225)
                 _draw_mechanistic_diagram_card(draw, seg, seg_idx, local_t, fonts, discipline=plan.discipline)
@@ -2282,19 +2318,17 @@ def render_hybrid_science_video(
                     else:
                         mascots.paste(canvas, "female_explain", center_x=965, bottom_y=1335, target_h=175, local_t=local_t, appear_at=0.12)
 
-            # Diagonal comic wipe transition between scenes
-            if seg_idx > 0 and local_t < 0.30:
+            if seg_idx > 0 and local_t < 0.28:
                 draw = ImageDraw.Draw(canvas)
-                draw_diagonal_wipe(draw, local_t / 0.30, canvas_w, canvas_h)
+                draw_diagonal_wipe(draw, local_t / 0.28, canvas_w, canvas_h)
 
-            # Persistent top brand + Mascot watermark & discipline pills
             draw = ImageDraw.Draw(canvas)
             draw_brand_pill(draw, fonts)
             draw_mascot_watermark(canvas, wm_pill_icon, wm_corner_stamp)
             _draw_discipline_pill(draw, plan.discipline, fonts, section_tag=getattr(plan, "section_tag", "EVERYDAY_TECH"))
 
-            if cover_overlay_img is not None and 0.32 <= t_global < 0.45:
-                fade_alpha = max(0.0, min(1.0, (0.45 - t_global) / 0.13))
+            if cover_overlay_img is not None and 0.25 <= t_global < 0.38:
+                fade_alpha = max(0.0, min(1.0, (0.38 - t_global) / 0.13))
                 canvas = Image.blend(canvas, cover_overlay_img, fade_alpha)
 
             proc.stdin.write(canvas.tobytes())
@@ -2309,4 +2343,5 @@ def render_hybrid_science_video(
     sheet_path = output_mp4.with_name(f"{output_mp4.stem}_contact_sheet.jpg")
     _build_contact_sheet(output_mp4, plan.segments, sheet_path)
     return str(output_mp4), str(sheet_path)
+
 

@@ -20,11 +20,14 @@ permissions:
   contents: write
   actions: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   weekly-growth-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Guard Against Duplicate Weekly Schedule Run
         id: guard
@@ -39,7 +42,7 @@ jobs:
 
       - name: Setup Python 3.12
         if: ${{ steps.guard.outputs.skip != 'true' }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 

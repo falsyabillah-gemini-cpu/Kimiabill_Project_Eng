@@ -228,7 +228,16 @@ def format_mechanism_catalog_for_agent3(bank_path: Path = BANK_PATH) -> dict[str
         for p in (bank.get("custom_presets") or [])[-24:]
         if p.get("preset_id") and p.get("engine_kind") in BUILTIN_MECHANISM_ENGINES
     ]
-    return {"core_engines": engines, "custom_presets": presets}
+    return {
+        "core_engines": engines,
+        "safe_neutral_templates": {
+            "concept_comparison": "Neutral side-by-side comparison of two real objects or physical states (no fake bonding)",
+            "micro_structure_callout": "Macro-to-micro surface topography callout (e.g. non-stick aluminum pores anchoring hot PTFE)",
+            "three_step_flow": "Sequential 3-step physical or engineering progression",
+            "stat_highlight": "Animated quantitative measurement or efficiency bar highlight",
+        },
+        "custom_presets": presets,
+    }
 
 
 def resolve_preset_style(preset_id: Optional[str], bank_path: Path = BANK_PATH) -> dict[str, Any]:
