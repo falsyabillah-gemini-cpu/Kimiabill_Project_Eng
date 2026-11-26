@@ -40,5 +40,63 @@
       "Agent 5 (QA Video v2)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)",
       "Agent 7 (Packaging & SEO)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)"
     }
+  },
+  {
+    "episode_id": "ep_20261126_2122",
+    "published_at_wib": "2026-11-26T21:35:41+07:00",
+    "title": "Dead Phone Payment Magic",
+    "discipline": "gadgets",
+    "section": "EVERYDAY_TECH",
+    "youtube_url": "https://youtube.com/shorts/wf3ubmJhi04",
+    "gdrive_folder_url": "https://drive.google.com/drive/folders/1yhAK9XI8TDeojmNUjahWsCffPwnPsX2L",
+    "qa_score": 9.5,
+    "duration_sec": 32.498,
+    "hook_line": "Your phone battery is at zero, completely dead. Yet it still pays instantly at the checkout terminal!",
+    "revisions_used": 2,
+    "topic_attempts_used": 1,
+    "production_seconds": 741.1,
+    "publish_mode": "public",
+    "agent_models": {
+      "Agent 1 (Ideasi Topik)": "gemini-3.6-flash (fallback dari gemini-3.8-flash)",
+      "Agent 2 (Auditor Hook)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)",
+      "Agent 3 (Skrip & Storyboard)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)",
+      "Agent 6 (Screening Klip)": "gemini-3.5-flash-lite (21x)",
+      "Agent 5 (QA Video v1)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)",
+      "Agent 5 (QA Video v2)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)",
+      "Agent 5 (QA Video v3)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)",
+      "Agent 7 (Packaging & SEO)": "gemini-3.5-flash-lite (fallback dari gemini-3.8-flash)"
+    },
+    "mechanisms_used": [
+      {
+        "scene_id": "scene_2",
+        "kind": "magnetic_induction",
+        "preset_id": "nfc_inductive_coupling",
+        "accent_color": "cyan",
+        "title": "13.56 MHZ INDUCTIVE POWER",
+        "actor_a": "Reader Coil",
+        "actor_b": "13.56 MHz RF",
+        "result": "Wireless Power"
+      },
+      {
+        "scene_id": "scene_3",
+        "kind": "magnetic_induction",
+        "preset_id": "nfc_inductive_coupling",
+        "accent_color": "blue",
+        "title": "PASSIVE COIL HARVESTING",
+        "actor_a": "Phone NFC Coil",
+        "actor_b": "Eddy Current",
+        "result": "Chip Powered!"
+      },
+      {
+        "scene_id": "scene_4",
+        "kind": "circuit_signal",
+        "preset_id": "capacitive_touch_grid",
+        "accent_color": "green",
+        "title": "SECURE HANDSHAKE",
+        "actor_a": "Secure Chip",
+        "actor_b": "Data Pulse",
+        "result": "Payment Approved"
+      }
+    ]
   }
 ]
