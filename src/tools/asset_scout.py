@@ -713,8 +713,8 @@ def vision_screen_clip(clip: Path, scene: SceneSpec) -> tuple[bool, bool, str]:
     """
     if os.environ.get("ASSET_VISION_SCREEN", "true").lower() != "true":
         return True, True, "vision screening disabled"
-    if not os.environ.get("GEMINI_API_KEY"):
-        return True, True, "no GEMINI_API_KEY; skipped vision screening"
+    if not (os.environ.get("GEMINI_API_KEY") or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")):
+        return True, True, "no LLM API key configured; skipped vision screening"
     strip = _build_frame_strip(clip, clip.with_name(f"{clip.stem}_screen.jpg"))
     if strip is None:
         return False, False, "could not extract frames"

@@ -309,6 +309,110 @@ def format_model_usage_summary(header: str = "[MODEL AI YANG DIPAKAI]") -> str:
     return "\n".join(lines)
 
 
+OPENROUTER_FALLBACK_MODELS: tuple[str, ...] = (
+    "google/gemini-3.8-flash",
+    "google/gemini-3.5-flash-lite",
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "nvidia/nemotron-3.5-super-vl:free",
+    "openrouter/free",
+)
+_OPENROUTER_PAID_NO_CREDITS = False
+
+
+def _call_openrouter_structured(
+    *,
+    api_key: str,
+    model: str,
+    requested_model: str,
+    agent_label: str,
+    system_prompt: str,
+    user_payload: dict[str, Any],
+    schema_hint: str,
+    response_model: Type[T],
+    handoff_path: Path | None,
+    image_paths: list[Path] | None,
+) -> T:
+    global _OPENROUTER_PAID_NO_CREDITS
+    prompt_text = (
+        f"INPUT_JSON:\n{json.dumps(user_payload, ensure_ascii=False)}\n\n"
+        f"Return ONLY valid JSON matching schema (no extra commentary):\n{schema_hint}"
+    )
+    img_parts: list[dict[str, Any]] = []
+    for img_p in image_paths or []:
+        if img_p.exists():
+            mime = "image/png" if img_p.suffix.lower() == ".png" else "image/jpeg"
+            b64 = base64.b64encode(img_p.read_bytes()).decode("ascii")
+            img_parts.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+
+    user_content: Any = (
+        [{"type": "text", "text": prompt_text}, *img_parts]
+        if img_parts
+        else prompt_text
+    )
+
+    mapped_req = model if "/" in model else f"google/{model}" if model.startswith("gemini") else DEFAULT_MODELS["openrouter"]
+    raw_pool = [mapped_req, *[m for m in OPENROUTER_FALLBACK_MODELS if m != mapped_req]]
+    if _OPENROUTER_PAID_NO_CREDITS:
+        candidates = [m for m in raw_pool if m.endswith(":free") or m == "openrouter/free"] or raw_pool
+    else:
+        candidates = raw_pool
+
+    last_err: Exception | None = None
+    for cand_model in candidates:
+        if _OPENROUTER_PAID_NO_CREDITS and not (cand_model.endswith(":free") or cand_model == "openrouter/free"):
+            continue
+        req_body: dict[str, Any] = {
+            "model": cand_model,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+        }
+        try:
+            resp = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=req_body,
+                timeout=90,
+            )
+            if resp.status_code == 400 and "response_format" in (resp.text or "").lower():
+                req_body.pop("response_format", None)
+                resp = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=req_body,
+                    timeout=90,
+                )
+            if resp.status_code == 402:
+                _OPENROUTER_PAID_NO_CREDITS = True
+                print(f"[providers] OpenRouter model '{cand_model}' butuh kredit (HTTP 402); otomatis pakai model :free...")
+                continue
+            if resp.status_code in (400, 404, 429, 502, 503):
+                print(f"[providers] OpenRouter model '{cand_model}' HTTP {resp.status_code}, mencoba fallback berikutnya...")
+                last_err = requests.HTTPError(f"HTTP {resp.status_code} ({cand_model}): {resp.text[:160]}", response=resp)
+                continue
+            resp.raise_for_status()
+            text = resp.json()["choices"][0]["message"]["content"]
+            parsed = response_model.model_validate(_extract_json(text))
+            _record_model_usage(agent_label, requested_model, f"openrouter/{cand_model}")
+            _save_handoff(parsed, handoff_path)
+            return parsed
+        except Exception as exc:
+            last_err = exc
+            print(f"[providers] OpenRouter model '{cand_model}' error ({exc}), mencoba fallback berikutnya...")
+            continue
+    assert last_err is not None
+    raise last_err
+
+
 def call_structured_agent(
     *,
     provider: str,
@@ -320,6 +424,7 @@ def call_structured_agent(
     image_paths: list[Path] | None = None,
 ) -> T:
     """Route an agent step to the configured provider and validate against a Pydantic schema."""
+    orig_provider = provider
     requested_model = model
     agent_label = _infer_agent_label(handoff_path, system_prompt)
     provider, model = resolve_provider_and_model(provider, model)
@@ -365,143 +470,161 @@ def call_structured_agent(
         return parsed
 
     if provider == "gemini_api":
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            raise ProviderError("GEMINI_API_KEY is not set")
-        user_parts: list[dict[str, Any]] = [
-            {
-                "text": (
-                    f"INPUT_JSON:\n{json.dumps(user_payload, ensure_ascii=False)}\n\n"
-                    f"Return JSON matching schema:\n{schema_hint}"
-                )
-            }
-        ]
-        for img_p in image_paths or []:
-            if img_p.exists():
-                mime = "image/png" if img_p.suffix.lower() == ".png" else "image/jpeg"
-                user_parts.append(
-                    {
-                        "inline_data": {
-                            "mime_type": mime,
-                            "data": base64.b64encode(img_p.read_bytes()).decode("ascii"),
-                        }
-                    }
-                )
-        body = {
-            "system_instruction": {"parts": [{"text": system_prompt}]},
-            "contents": [{"role": "user", "parts": user_parts}],
-            "generationConfig": {"responseMimeType": "application/json"},
-        }
-        last_parse_err: Exception | None = None
-        for parse_try in range(2):
-            tried: list[str] = []
-            discovered_all = _discover_gemini_flash_models(api_key)
-            ordered_pool = [model, *[m for m in GEMINI_FALLBACK_MODELS if m != model]]
-            for dm in discovered_all:
-                if dm not in ordered_pool and "omni" not in dm:
-                    ordered_pool.append(dm)
-            non_perm = [m for m in ordered_pool if m not in _EXHAUSTED_MODELS_THIS_RUN]
-            if not non_perm:
-                non_perm = [m for m in discovered_all if m not in _EXHAUSTED_MODELS_THIS_RUN]
-            if not non_perm:
-                raise GeminiQuotaExhaustedError(
-                    "429 Daily Quota Exhausted: All Gemini Flash models have already reached daily limits."
-                )
-            now_mono = time.monotonic()
-            candidates = [m for m in non_perm if _MODEL_COOLDOWN_UNTIL.get(m, 0.0) <= now_mono]
-            if not candidates:
-                earliest = min(_MODEL_COOLDOWN_UNTIL.get(m, now_mono) for m in non_perm)
-                cool_wait = min(35.0, max(5.0, earliest - now_mono))
-                print(f"[providers] Semua model Gemini sedang jeda RPM sesaat; menunggu {cool_wait:.0f}s agar kuota pulih...")
-                time.sleep(cool_wait)
-                candidates = non_perm
-
-            resp = None
-            active_model = model
-            last_quota_msg = ""
-            for cand_idx, cand_model in enumerate(candidates):
-                tried.append(cand_model)
-                url = (
-                    f"https://generativelanguage.googleapis.com/v1beta/models/"
-                    f"{cand_model}:generateContent?key={api_key}"
-                )
-                has_more = cand_idx < len(candidates) - 1
-                try:
-                    resp = _post_with_retry(
-                        url,
-                        json_body=body,
-                        max_attempts=1 if (has_more and cand_model in ("gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.6-flash")) else (2 if has_more else 2),
-                        timeout=22 if has_more else 32,
-                        fail_fast_429=True,
+        try:
+            api_key = os.environ.get("GEMINI_API_KEY")
+            if not api_key:
+                raise ProviderError("GEMINI_API_KEY is not set")
+            user_parts: list[dict[str, Any]] = [
+                {
+                    "text": (
+                        f"INPUT_JSON:\n{json.dumps(user_payload, ensure_ascii=False)}\n\n"
+                        f"Return JSON matching schema:\n{schema_hint}"
                     )
-                except requests.RequestException as exc:
-                    print(f"[providers] Gemini model '{cand_model}' timeout/network error ({exc}), trying next fallback...")
-                    if has_more:
-                        _MODEL_COOLDOWN_UNTIL[cand_model] = time.monotonic() + 60.0
-                    resp = None
-                    continue
-                if resp.status_code == 200:
-                    _MODEL_COOLDOWN_UNTIL.pop(cand_model, None)
-                    active_model = cand_model
-                    break
-                err_txt_low = (resp.text or "").lower()
-                is_daily_exhausted = (
-                    "perday" in err_txt_low
-                    or "per day" in err_txt_low
-                    or "daily" in err_txt_low
-                    or '"limit": 0' in err_txt_low
-                    or "'limit': 0" in err_txt_low
-                )
-                if resp.status_code in (429, 503):
-                    last_quota_msg = f"HTTP {resp.status_code} ({cand_model}): {resp.text[:140]}"
-                if resp.status_code in (402, 403, 404) or (resp.status_code == 429 and is_daily_exhausted):
-                    _EXHAUSTED_MODELS_THIS_RUN.add(cand_model)
-                elif resp.status_code in (429, 503):
-                    _MODEL_COOLDOWN_UNTIL[cand_model] = time.monotonic() + (90.0 if resp.status_code == 429 else 45.0)
-                if cand_model == "gemini-4-hydrogen" and resp.status_code in (402, 403):
-                    _notify_hydrogen_alert(resp.status_code, resp.text[:400])
-                if resp.status_code not in (402, 403, 404, *TRANSIENT_STATUS_CODES):
-                    break
-                label = "daily quota" if (resp.status_code == 429 and is_daily_exhausted) else ("limit/quota" if resp.status_code == 429 else f"HTTP {resp.status_code}")
-                print(f"[providers] Model '{cand_model}' ({label}), otomatis beralih ke fallback berikutnya...")
-            if resp is None or resp.status_code in (404, *TRANSIENT_STATUS_CODES):
-                for discovered in discovered_all:
-                    if discovered in tried or discovered in _EXHAUSTED_MODELS_THIS_RUN or _MODEL_COOLDOWN_UNTIL.get(discovered, 0.0) > time.monotonic():
-                        continue
+                }
+            ]
+            for img_p in image_paths or []:
+                if img_p.exists():
+                    mime = "image/png" if img_p.suffix.lower() == ".png" else "image/jpeg"
+                    user_parts.append(
+                        {
+                            "inline_data": {
+                                "mime_type": mime,
+                                "data": base64.b64encode(img_p.read_bytes()).decode("ascii"),
+                            }
+                        }
+                    )
+            body = {
+                "system_instruction": {"parts": [{"text": system_prompt}]},
+                "contents": [{"role": "user", "parts": user_parts}],
+                "generationConfig": {"responseMimeType": "application/json"},
+            }
+            last_parse_err: Exception | None = None
+            for parse_try in range(2):
+                tried: list[str] = []
+                discovered_all = _discover_gemini_flash_models(api_key)
+                ordered_pool = [model, *[m for m in GEMINI_FALLBACK_MODELS if m != model]]
+                for dm in discovered_all:
+                    if dm not in ordered_pool and "omni" not in dm:
+                        ordered_pool.append(dm)
+                non_perm = [m for m in ordered_pool if m not in _EXHAUSTED_MODELS_THIS_RUN]
+                if not non_perm:
+                    non_perm = [m for m in discovered_all if m not in _EXHAUSTED_MODELS_THIS_RUN]
+                if not non_perm:
+                    raise GeminiQuotaExhaustedError(
+                        "429 Daily Quota Exhausted: All Gemini Flash models have already reached daily limits."
+                    )
+                now_mono = time.monotonic()
+                candidates = [m for m in non_perm if _MODEL_COOLDOWN_UNTIL.get(m, 0.0) <= now_mono]
+                if not candidates:
+                    earliest = min(_MODEL_COOLDOWN_UNTIL.get(m, now_mono) for m in non_perm)
+                    cool_wait = min(35.0, max(5.0, earliest - now_mono))
+                    print(f"[providers] Semua model Gemini sedang jeda RPM sesaat; menunggu {cool_wait:.0f}s agar kuota pulih...")
+                    time.sleep(cool_wait)
+                    candidates = non_perm
+
+                resp = None
+                active_model = model
+                last_quota_msg = ""
+                for cand_idx, cand_model in enumerate(candidates):
+                    tried.append(cand_model)
                     url = (
                         f"https://generativelanguage.googleapis.com/v1beta/models/"
-                        f"{discovered}:generateContent?key={api_key}"
+                        f"{cand_model}:generateContent?key={api_key}"
                     )
-                    resp = _post_with_retry(url, json_body=body, max_attempts=1, fail_fast_429=True)
+                    has_more = cand_idx < len(candidates) - 1
+                    try:
+                        resp = _post_with_retry(
+                            url,
+                            json_body=body,
+                            max_attempts=1 if (has_more and cand_model in ("gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.6-flash")) else 2,
+                            timeout=22 if has_more else 32,
+                            fail_fast_429=True,
+                        )
+                    except requests.RequestException as exc:
+                        print(f"[providers] Gemini model '{cand_model}' timeout/network error ({exc}), trying next fallback...")
+                        if has_more:
+                            _MODEL_COOLDOWN_UNTIL[cand_model] = time.monotonic() + 60.0
+                        resp = None
+                        continue
                     if resp.status_code == 200:
-                        active_model = discovered
+                        _MODEL_COOLDOWN_UNTIL.pop(cand_model, None)
+                        active_model = cand_model
                         break
-                    err_d_low = (resp.text or "").lower()
+                    err_txt_low = (resp.text or "").lower()
+                    is_daily_exhausted = (
+                        "perday" in err_txt_low
+                        or "per day" in err_txt_low
+                        or "daily" in err_txt_low
+                        or '"limit": 0' in err_txt_low
+                        or "'limit': 0" in err_txt_low
+                    )
                     if resp.status_code in (429, 503):
-                        last_quota_msg = f"HTTP {resp.status_code} ({discovered}): {resp.text[:140]}"
-                    if resp.status_code in (402, 403, 404) or (resp.status_code == 429 and ("perday" in err_d_low or "per day" in err_d_low)):
-                        _EXHAUSTED_MODELS_THIS_RUN.add(discovered)
+                        last_quota_msg = f"HTTP {resp.status_code} ({cand_model}): {resp.text[:140]}"
+                    if resp.status_code in (402, 403, 404) or (resp.status_code == 429 and is_daily_exhausted):
+                        _EXHAUSTED_MODELS_THIS_RUN.add(cand_model)
                     elif resp.status_code in (429, 503):
-                        _MODEL_COOLDOWN_UNTIL[discovered] = time.monotonic() + 90.0
-            if resp is None:
-                raise GeminiQuotaExhaustedError("429/timeout across all Gemini models (no HTTP response)")
-            if resp.status_code in (429, 503) or (resp.status_code == 404 and last_quota_msg):
-                raise GeminiQuotaExhaustedError(
-                    f"429 Client Error: All Gemini Flash models unavailable ({resp.status_code}) — {last_quota_msg or resp.text[:160]}"
+                        _MODEL_COOLDOWN_UNTIL[cand_model] = time.monotonic() + (90.0 if resp.status_code == 429 else 45.0)
+                    if cand_model == "gemini-4-hydrogen" and resp.status_code in (402, 403):
+                        _notify_hydrogen_alert(resp.status_code, resp.text[:400])
+                    if resp.status_code not in (402, 403, 404, *TRANSIENT_STATUS_CODES):
+                        break
+                    label = "daily quota" if (resp.status_code == 429 and is_daily_exhausted) else ("limit/quota" if resp.status_code == 429 else f"HTTP {resp.status_code}")
+                    print(f"[providers] Model '{cand_model}' ({label}), otomatis beralih ke fallback berikutnya...")
+                if resp is None or resp.status_code in (404, *TRANSIENT_STATUS_CODES):
+                    for discovered in discovered_all:
+                        if discovered in tried or discovered in _EXHAUSTED_MODELS_THIS_RUN or _MODEL_COOLDOWN_UNTIL.get(discovered, 0.0) > time.monotonic():
+                            continue
+                        url = (
+                            f"https://generativelanguage.googleapis.com/v1beta/models/"
+                            f"{discovered}:generateContent?key={api_key}"
+                        )
+                        resp = _post_with_retry(url, json_body=body, max_attempts=1, fail_fast_429=True)
+                        if resp.status_code == 200:
+                            active_model = discovered
+                            break
+                        err_d_low = (resp.text or "").lower()
+                        if resp.status_code in (429, 503):
+                            last_quota_msg = f"HTTP {resp.status_code} ({discovered}): {resp.text[:140]}"
+                        if resp.status_code in (402, 403, 404) or (resp.status_code == 429 and ("perday" in err_d_low or "per day" in err_d_low)):
+                            _EXHAUSTED_MODELS_THIS_RUN.add(discovered)
+                        elif resp.status_code in (429, 503):
+                            _MODEL_COOLDOWN_UNTIL[discovered] = time.monotonic() + 90.0
+                if resp is None:
+                    raise GeminiQuotaExhaustedError("429/timeout across all Gemini models (no HTTP response)")
+                if resp.status_code in (429, 503) or (resp.status_code == 404 and last_quota_msg):
+                    raise GeminiQuotaExhaustedError(
+                        f"429 Client Error: All Gemini Flash models unavailable ({resp.status_code}) — {last_quota_msg or resp.text[:160]}"
+                    )
+                resp.raise_for_status()
+                text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+                try:
+                    parsed = response_model.model_validate(_extract_json(text))
+                    _record_model_usage(agent_label, requested_model, active_model)
+                    _save_handoff(parsed, handoff_path)
+                    return parsed
+                except Exception as exc:
+                    last_parse_err = exc
+                    print(f"[providers] Gemini JSON/schema parse error (attempt {parse_try + 1}/2): {exc}")
+                    time.sleep(2)
+            assert last_parse_err is not None
+            raise last_parse_err
+        except Exception as gem_exc:
+            openrouter_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+            if orig_provider == "auto" and openrouter_key:
+                print(f"[providers] Gemini unavailable ({str(gem_exc)[:110]}); failover otomatis ke OpenRouter...")
+                return _call_openrouter_structured(
+                    api_key=openrouter_key,
+                    model=model,
+                    requested_model=requested_model,
+                    agent_label=agent_label,
+                    system_prompt=system_prompt,
+                    user_payload=user_payload,
+                    schema_hint=schema_hint,
+                    response_model=response_model,
+                    handoff_path=handoff_path,
+                    image_paths=image_paths,
                 )
-            resp.raise_for_status()
-            text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-            try:
-                parsed = response_model.model_validate(_extract_json(text))
-                _record_model_usage(agent_label, requested_model, active_model)
-                _save_handoff(parsed, handoff_path)
-                return parsed
-            except Exception as exc:
-                last_parse_err = exc
-                print(f"[providers] Gemini JSON/schema parse error (attempt {parse_try + 1}/2): {exc}")
-                time.sleep(2)
-        assert last_parse_err is not None
-        raise last_parse_err
+            raise
 
     if provider == "anthropic_api":
         api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -541,33 +664,17 @@ def call_structured_agent(
         api_key = os.environ.get("OPENROUTER_API_KEY")
         if not api_key:
             raise ProviderError("OPENROUTER_API_KEY is not set")
-        resp = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "response_format": {"type": "json_object"},
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {
-                        "role": "user",
-                        "content": (
-                            f"INPUT_JSON:\n{json.dumps(user_payload, ensure_ascii=False)}\n\n"
-                            f"Return ONLY valid JSON matching schema:\n{schema_hint}"
-                        ),
-                    },
-                ],
-            },
-            timeout=120,
+        return _call_openrouter_structured(
+            api_key=api_key,
+            model=model,
+            requested_model=requested_model,
+            agent_label=agent_label,
+            system_prompt=system_prompt,
+            user_payload=user_payload,
+            schema_hint=schema_hint,
+            response_model=response_model,
+            handoff_path=handoff_path,
+            image_paths=image_paths,
         )
-        resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"]
-        parsed = response_model.model_validate(_extract_json(text))
-        _record_model_usage(agent_label, requested_model, model)
-        _save_handoff(parsed, handoff_path)
-        return parsed
 
     raise ProviderError(f"Unsupported provider: {provider}")
