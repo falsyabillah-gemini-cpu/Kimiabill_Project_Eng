@@ -73,9 +73,7 @@ GEMINI_FALLBACK_MODELS: tuple[str, ...] = (
     "gemini-3.8-flash",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
-    "gemini-2.5-flash",
     "gemini-3.5-flash-lite",
-    "gemini-2.5-flash-lite",
 )
 
 TRANSIENT_STATUS_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
@@ -404,7 +402,11 @@ def call_structured_agent(
                     ordered_pool.append(dm)
             non_perm = [m for m in ordered_pool if m not in _EXHAUSTED_MODELS_THIS_RUN]
             if not non_perm:
-                non_perm = [m for m in discovered_all if m not in _EXHAUSTED_MODELS_THIS_RUN] or ordered_pool
+                non_perm = [m for m in discovered_all if m not in _EXHAUSTED_MODELS_THIS_RUN]
+            if not non_perm:
+                raise GeminiQuotaExhaustedError(
+                    "429 Daily Quota Exhausted: All Gemini Flash models have already reached daily limits."
+                )
             now_mono = time.monotonic()
             candidates = [m for m in non_perm if _MODEL_COOLDOWN_UNTIL.get(m, 0.0) <= now_mono]
             if not candidates:
@@ -416,6 +418,7 @@ def call_structured_agent(
 
             resp = None
             active_model = model
+            last_quota_msg = ""
             for cand_idx, cand_model in enumerate(candidates):
                 tried.append(cand_model)
                 url = (
@@ -449,6 +452,8 @@ def call_structured_agent(
                     or '"limit": 0' in err_txt_low
                     or "'limit': 0" in err_txt_low
                 )
+                if resp.status_code in (429, 503):
+                    last_quota_msg = f"HTTP {resp.status_code} ({cand_model}): {resp.text[:140]}"
                 if resp.status_code in (402, 403, 404) or (resp.status_code == 429 and is_daily_exhausted):
                     _EXHAUSTED_MODELS_THIS_RUN.add(cand_model)
                 elif resp.status_code in (429, 503):
@@ -472,15 +477,17 @@ def call_structured_agent(
                         active_model = discovered
                         break
                     err_d_low = (resp.text or "").lower()
+                    if resp.status_code in (429, 503):
+                        last_quota_msg = f"HTTP {resp.status_code} ({discovered}): {resp.text[:140]}"
                     if resp.status_code in (402, 403, 404) or (resp.status_code == 429 and ("perday" in err_d_low or "per day" in err_d_low)):
                         _EXHAUSTED_MODELS_THIS_RUN.add(discovered)
                     elif resp.status_code in (429, 503):
                         _MODEL_COOLDOWN_UNTIL[discovered] = time.monotonic() + 90.0
             if resp is None:
                 raise GeminiQuotaExhaustedError("429/timeout across all Gemini models (no HTTP response)")
-            if resp.status_code in (429, 503):
+            if resp.status_code in (429, 503) or (resp.status_code == 404 and last_quota_msg):
                 raise GeminiQuotaExhaustedError(
-                    f"429 Client Error: All Gemini Flash models unavailable ({resp.status_code}) — {resp.text[:160]}"
+                    f"429 Client Error: All Gemini Flash models unavailable ({resp.status_code}) — {last_quota_msg or resp.text[:160]}"
                 )
             resp.raise_for_status()
             text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]

@@ -902,13 +902,9 @@ def _metadata_relevance_score(cand: VideoCandidate, scene: SceneSpec, topic_term
             return -10
     if not topic_terms:
         return 1
-    hits = len(meta_tokens & topic_terms)
-    # Give partial substring bonus for longer root words (e.g. 'cook' in 'cooking', 'micro' in 'microchip')
-    if hits == 0:
-        for t in topic_terms:
-            if len(t) >= 5 and t[:5] in meta_clean:
-                hits += 1
-    return hits
+    meta_stems = meta_tokens | {t.rstrip("s") for t in meta_tokens if len(t) > 4}
+    topic_stems = topic_terms | {t.rstrip("s") for t in topic_terms if len(t) > 4}
+    return len(meta_stems & topic_stems)
 
 
 def scout_assets_for_scenes(
