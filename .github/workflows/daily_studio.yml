@@ -1,41 +1,48 @@
-name: Daily Auto-Video (Everyday Sci-Tech)
+name: Daily Auto-Video (Bill_Explains Sci-Tech)
 
 on:
   schedule:
-    # 2 videos/day timed for global prime-time (US/EU peak) & offset from Kimiabill to avoid API rate limits:
-    # Slot 1 (04:00 WIB = 16:00 EST): primary 02:13 WIB (19:13 UTC), watchdog 03:11 WIB (20:11 UTC), post-window rescue 04:21 WIB (21:21 UTC)
-    - cron: "13 19 * * *"
-    - cron: "11 20 * * *"
-    - cron: "21 21 * * *"
-    # Slot 2 (21:00 WIB = 09:00 EST / 14:00 UTC): primary 19:23 WIB (12:23 UTC), watchdog 20:11 WIB (13:11 UTC), post-window rescue 21:21 WIB (14:21 UTC)
-    - cron: "23 12 * * *"
-    - cron: "11 13 * * *"
-    - cron: "21 14 * * *"
+    # Slot 1 (default DAILY_VIDEO_COUNT=1): Produce 19:30 WIB (12:30 UTC) -> Audit -> Publish 21:00 WIB (09:00 EST)
+    - cron: "30 12 * * *"
+    # Slot 2 (only when vars.DAILY_VIDEO_COUNT == '2'): Produce 20:15 WIB (13:15 UTC) -> Audit -> Publish 04:00 WIB (16:00 EST)
+    - cron: "15 13 * * *"
   repository_dispatch:
-    types: [telegram_feedback, telegram_rerender]
+    types:
+      - telegram_feedback
+      - telegram_approve
+      - telegram_rerender
+      - telegram_reject_next
+      - telegram_ai_audit
   workflow_dispatch:
     inputs:
       publish_mode:
-        description: "YouTube upload mode (public / draft = Unlisted / dry_run = Drive only)"
+        description: "Upload mode (draft = Unlisted Audit Gate [recommended] / dry_run = Drive only)"
         required: false
-        default: "public"
+        default: "draft"
         type: choice
         options:
-          - public
           - draft
           - dry_run
+      slot:
+        description: "Target schedule slot (slot_2100 = 21:00 WIB / slot_0400 = 04:00 WIB)"
+        required: false
+        default: "slot_2100"
+        type: choice
+        options:
+          - slot_2100
+          - slot_0400
       target_publish_time_wib:
-        description: "Optional: hold upload until HH:MM WIB (e.g. 04:00 or 21:00)"
+        description: "Optional override publish hour HH:MM WIB (e.g. 21:00 or 04:00)"
         required: false
         default: ""
         type: string
       resume_artifact_run_id:
-        description: "Optional: GitHub Run ID to rescue-upload an existing video artifact (<1 min)"
+        description: "Optional: GitHub Run ID to rescue-upload an existing video artifact"
         required: false
         default: ""
         type: string
       owner_feedback:
-        description: "Optional: custom owner feedback/instruction for this episode"
+        description: "Optional: custom owner instruction for this episode"
         required: false
         default: ""
         type: string
@@ -44,38 +51,46 @@ permissions:
   contents: write
   actions: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   produce-video:
     runs-on: ubuntu-latest
-    timeout-minutes: 270
+    timeout-minutes: 90
     outputs:
       skip_duplicate: ${{ steps.guard.outputs.skip }}
     steps:
-      - name: Guard Against Concurrent or Duplicate Run
+      - name: Guard Against Duplicate Slot or Disabled Slot 2
         id: guard
         env:
           GH_TOKEN: ${{ github.token }}
+          DAILY_COUNT: ${{ vars.DAILY_VIDEO_COUNT || '1' }}
         run: |
           SKIP="false"
-          if [ "${{ github.event_name }}" = "schedule" ]; then
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "15 13 * * *" ] && [ "$DAILY_COUNT" != "2" ]; then
+            echo "Slot 2 (04:00 WIB) disabled because DAILY_VIDEO_COUNT=$DAILY_COUNT (!= 2)."
+            SKIP="true"
+          fi
+          if [ "$SKIP" != "true" ] && [ "${{ github.event_name }}" = "schedule" ]; then
             ACTIVE=$(gh run list -R "${{ github.repository }}" --workflow daily_studio.yml --limit 10 --json databaseId,status,displayTitle --jq "[.[] | select((.status == \"in_progress\" or .status == \"queued\") and (.databaseId != ${{ github.run_id }}) and (.displayTitle != \"telegram_feedback\"))] | length")
             if [ "${ACTIVE:-0}" -gt 0 ]; then
-              echo "Another production run is already active — skipping duplicate watchdog run."
+              echo "Another production run is already active — skipping duplicate schedule run."
               SKIP="true"
             fi
           fi
           echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: ${{ steps.guard.outputs.skip != 'true' }}
 
       - name: Setup Python 3.12
         if: ${{ steps.guard.outputs.skip != 'true' }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
-      - name: Compile & Apply Telegram Feedback Directly to All Agents (Next Video Mode)
+      - name: Handle Lightweight Telegram Text Feedback
         if: ${{ steps.guard.outputs.skip != 'true' && github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback' }}
         env:
           FB_TEXT: ${{ github.event.client_payload.text || github.event.client_payload.feedback || '' }}
@@ -95,28 +110,46 @@ jobs:
               res = handle_telegram_dispatch_feedback(txt, mode="next_video")
               print(f"[telegram] Compiled owner feedback into Agents 1-8 & Engine: {res}")
           PY
-          git config user.name "Everyday SciTech Studio Bot"
+          git config user.name "Bill_Explains Studio Bot"
           git config user.email "bot@studio.local"
           git add data/owner_feedback.json 2>/dev/null || true
           if ! git diff --cached --quiet; then
             git commit -m "chore: compile owner Telegram feedback to Agents 1-8 & engine [skip ci]"
-            git pull --rebase --autostash origin main || true
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME:-main}" || true
             git push
           fi
 
+      - name: Handle Interactive Telegram Approve Dispatch
+        if: ${{ steps.guard.outputs.skip != 'true' && github.event_name == 'repository_dispatch' && github.event.action == 'telegram_approve' }}
+        env:
+          DISPATCH_EP_ID: ${{ github.event.client_payload.episode_id || '' }}
+          GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
+          GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
+          YOUTUBE_WEBHOOK_URL: ${{ secrets.YOUTUBE_WEBHOOK_URL }}
+          YOUTUBE_WEBHOOK_TOKEN: ${{ secrets.YOUTUBE_WEBHOOK_TOKEN }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          pip install -q pydantic pyyaml requests python-dotenv
+          python -m src.scheduler approve --episode-id "$DISPATCH_EP_ID"
+
       - name: Install FFmpeg & Dependencies
-        if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
+        if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && (github.event.action == 'telegram_feedback' || github.event.action == 'telegram_approve')) }}
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-liberation
-          pip install -r requirements.txt
+          pip install -q -r requirements.txt
 
       - name: Rescue Upload from Existing Artifact (Optional)
-        if: ${{ steps.guard.outputs.skip != 'true' && inputs.resume_artifact_run_id != '' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
+        if: ${{ steps.guard.outputs.skip != 'true' && inputs.resume_artifact_run_id != '' }}
         env:
           PYTHONUNBUFFERED: "1"
           GH_TOKEN: ${{ github.token }}
-          PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'public' }}
+          PUBLISH_MODE: "draft"
+          ALLOW_DIRECT_PUBLIC: "false"
           GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
           GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
           YOUTUBE_WEBHOOK_URL: ${{ secrets.YOUTUBE_WEBHOOK_URL }}
@@ -130,74 +163,46 @@ jobs:
           mkdir -p _rescue_art episodes
           gh run download "${{ inputs.resume_artifact_run_id }}" -D _rescue_art
           python - <<'PY'
-          import json, os, shutil
+          import os, shutil
           from pathlib import Path
           from src.pipeline import run_upload
-          from src.state import EpisodeState
 
           art_root = Path("_rescue_art")
           mp4 = next(art_root.rglob("FINAL_*.mp4"))
           src_dir = mp4.parent
-          ep_id = src_dir.name if src_dir.name.startswith("ep_") else ""
-          if not ep_id:
-              hist_p = Path("data/published_history.json")
-              if hist_p.exists():
-                  hist = json.loads(hist_p.read_text(encoding="utf-8"))
-                  for row in reversed(hist):
-                      if not row.get("youtube_url") and row.get("episode_id"):
-                          ep_id = row["episode_id"]
-                          break
-          if not ep_id:
-              ep_id = f"ep_rescue_{os.environ.get('GITHUB_RUN_ID', 'manual')}"
-
+          ep_id = src_dir.name if src_dir.name.startswith("ep_") else f"ep_rescue_{os.environ.get('GITHUB_RUN_ID', 'manual')}"
           ep_dir = Path("episodes") / ep_id
           ep_dir.mkdir(parents=True, exist_ok=True)
           shutil.copytree(src_dir, ep_dir, dirs_exist_ok=True)
-          print(f"[rescue] Processing {ep_id} ({mp4.name}, {mp4.stat().st_size / (1024*1024):.1f} MB)...")
-
-          st_path = ep_dir / "episode_state.json"
-          if not st_path.exists():
-              hf_dir = ep_dir / "handoffs"
-              a3_p = hf_dir / "agent3_script.json"
-              a5_files = sorted(hf_dir.glob("agent5_audit_v*.json")) if hf_dir.exists() else []
-              a7_p = hf_dir / "agent7_package.json"
-              a3 = json.loads(a3_p.read_text(encoding="utf-8")) if a3_p.exists() else None
-              a5_list = [json.loads(a5_files[-1].read_text(encoding="utf-8"))] if a5_files else []
-              a7 = json.loads(a7_p.read_text(encoding="utf-8")) if a7_p.exists() else None
-              st = EpisodeState(episode_id=ep_id, status="rendered_final", agent3=a3, agent5_history=a5_list, agent7=a7)
-              st_path.write_text(st.model_dump_json(indent=2), encoding="utf-8")
-
           state = run_upload(ep_id, allow_youtube=True, qa_summary="Rescue Upload QA Passed")
           shutil.rmtree(art_root, ignore_errors=True)
-          if not state.youtube_url:
-              raise SystemExit(f"Rescue upload failed: youtube_url empty (Drive: {state.gdrive_folder_url})")
-          print(f"[rescue] Uploaded to YouTube Shorts: {state.youtube_url}")
+          print(f"[rescue] Uploaded unlisted draft to YouTube: {state.youtube_url}")
           PY
 
-      - name: Run Automated Episode Pipeline
-        if: ${{ steps.guard.outputs.skip != 'true' && inputs.resume_artifact_run_id == '' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
+      - name: Run Production or Interactive Dispatch Action
+        if: ${{ steps.guard.outputs.skip != 'true' && inputs.resume_artifact_run_id == '' && !(github.event_name == 'repository_dispatch' && (github.event.action == 'telegram_feedback' || github.event.action == 'telegram_approve')) }}
         env:
           PYTHONUNBUFFERED: "1"
+          GH_TOKEN: ${{ github.token }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          COVERR_API_KEY: ${{ secrets.COVERR_API_KEY }}
+          UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID || vars.ELEVENLABS_VOICE_ID }}
           ELEVENLABS_MODEL_ID: ${{ vars.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2' }}
-          PUBLISH_MODE: ${{ inputs.publish_mode || vars.PUBLISH_MODE || 'public' }}
-          TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || ((github.event.schedule == '13 19 * * *' || github.event.schedule == '11 20 * * *' || github.event.schedule == '21 21 * * *') && '04:00' || ((github.event.schedule == '23 12 * * *' || github.event.schedule == '11 13 * * *' || github.event.schedule == '21 14 * * *') && '21:00' || '')) }}
+          CHIEF_EDITOR_MODEL: ${{ vars.CHIEF_EDITOR_MODEL || 'gemini-3.8-flash' }}
+          PUBLISH_MODE: ${{ inputs.publish_mode || 'draft' }}
+          ALLOW_DIRECT_PUBLIC: "false"
+          STUDIO_SLOT: ${{ inputs.slot || ((github.event.schedule == '15 13 * * *') && 'slot_0400' || 'slot_2100') }}
+          TARGET_PUBLISH_TIME_WIB: ${{ inputs.target_publish_time_wib || ((github.event.schedule == '15 13 * * *' || inputs.slot == 'slot_0400') && '04:00' || '21:00') }}
           SKIP_IF_SLOT_PUBLISHED: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
-          INSTAGRAM_IG_USER_ID: ${{ secrets.INSTAGRAM_IG_USER_ID }}
-          PUBLIC_MEDIA_BASE_URL: ${{ secrets.PUBLIC_MEDIA_BASE_URL }}
-          TIKTOK_ACCESS_TOKEN: ${{ secrets.TIKTOK_ACCESS_TOKEN }}
-          SOCIAL_BRIDGE_WEBHOOK_URL: ${{ secrets.SOCIAL_BRIDGE_WEBHOOK_URL }}
-          SOCIAL_BRIDGE_API_KEY: ${{ secrets.SOCIAL_BRIDGE_API_KEY }}
           GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
           GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
           YOUTUBE_WEBHOOK_URL: ${{ secrets.YOUTUBE_WEBHOOK_URL }}
@@ -208,32 +213,44 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           OWNER_FEEDBACK_OVERRIDE: ${{ github.event.inputs.owner_feedback || github.event.client_payload.feedback || '' }}
+          DISPATCH_ACTION: ${{ github.event.action || '' }}
+          DISPATCH_EP_ID: ${{ github.event.client_payload.episode_id || '' }}
           AUTO_UPLOAD_GDRIVE: "true"
         run: |
-          if [ -n "$OWNER_FEEDBACK_OVERRIDE" ]; then
-            python -c "import os; from src.tools.telegram_notify import record_owner_feedback; record_owner_feedback(os.environ['OWNER_FEEDBACK_OVERRIDE'], mode='rerender')"
+          if [ "$DISPATCH_ACTION" = "telegram_rerender" ]; then
+            python -m src.scheduler rerender --episode-id "$DISPATCH_EP_ID" --feedback "$OWNER_FEEDBACK_OVERRIDE"
+          elif [ "$DISPATCH_ACTION" = "telegram_reject_next" ]; then
+            python -m src.scheduler reject-next --episode-id "$DISPATCH_EP_ID"
+          elif [ "$DISPATCH_ACTION" = "telegram_ai_audit" ]; then
+            python -m src.chief_editor_audit audit --episode-id "$DISPATCH_EP_ID"
+          else
+            if [ -n "$OWNER_FEEDBACK_OVERRIDE" ]; then
+              python -c "import os; from src.tools.telegram_notify import record_owner_feedback; record_owner_feedback(os.environ['OWNER_FEEDBACK_OVERRIDE'], mode='rerender')"
+            fi
+            python -m src.scheduler run --slot "$STUDIO_SLOT"
           fi
-          python -c "from src.scheduler import run_one_automated_episode; run_one_automated_episode()"
 
-      - name: Save Published Episode History for Weekly Audit
+      - name: Commit Studio State (Pending Review, Rejected Topics & History)
         if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
         run: |
-          git config user.name "Everyday SciTech Studio Bot"
+          git config user.name "Bill_Explains Studio Bot"
           git config user.email "bot@studio.local"
-          for f in data/published_history.json data/audience_requests.json data/memory.db data/owner_feedback.json; do
+          for f in data/pending_review.json data/rejected_topics.json data/published_history.json data/audience_requests.json data/memory.db data/owner_feedback.json; do
             [ -e "$f" ] && git add "$f" || true
           done
           if ! git diff --cached --quiet; then
-            git commit -m "chore: record published episode for weekly growth audit [skip ci]"
-            git pull --rebase origin main || true
+            git commit -m "chore: update studio review & history state [skip ci]"
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME:-main}" || true
             git push
           fi
 
       - name: Upload Rendered Video Artifact
-        if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && github.event.action == 'telegram_feedback') }}
-        uses: actions/upload-artifact@v4
+        if: ${{ steps.guard.outputs.skip != 'true' && !(github.event_name == 'repository_dispatch' && (github.event.action == 'telegram_feedback' || github.event.action == 'telegram_approve')) }}
+        uses: actions/upload-artifact@v7
         with:
-          name: studio-episode-${{ github.run_number }}
+          name: studio-episode-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 7
           path: |
             episodes/*/FINAL_*.mp4
             episodes/*/THUMBNAIL_*.jpg

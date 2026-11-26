@@ -1,23 +1,29 @@
 """English male voiceover engine (ElevenLabs primary with automatic quota-limit fallback to Edge-TTS)
-with exact scene duration tracking and kinetic subtitle chunk timing.
+with TTS Pronunciation Normalizer (tts_text vs subtitle_text separation), <=0.15s gap trimming,
+and zero dead-air ending for crisp YouTube Shorts pacing.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import edge_tts
 import requests
 
+from src.brand_config import BASE_DIR, get_brand_spoken_name
 from src.state import SceneSpec, SubtitleChunk
 
 DEFAULT_ELEVENLABS_VOICE_ID = "pNInz6obpgDQGcFmaJgB"  # Adam (clear, energetic English male voice)
 DEFAULT_ELEVENLABS_MODEL_ID = "eleven_multilingual_v2"
 DEFAULT_EDGE_VOICE = "en-US-AndrewNeural"
+PRONUNCIATION_DICT_PATH = BASE_DIR / "config" / "pronunciation_dict.json"
 
 
 class ElevenLabsQuotaOrAuthError(RuntimeError):
@@ -32,6 +38,73 @@ class SceneVoiceResult:
     end_sec: float
     duration_sec: float
     subtitles: list[SubtitleChunk]
+
+
+def _load_pronunciation_dict() -> dict[str, Any]:
+    if not PRONUNCIATION_DICT_PATH.exists():
+        return {}
+    try:
+        return json.loads(PRONUNCIATION_DICT_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def normalize_for_tts(text: str) -> str:
+    """Convert standard American English script text (`subtitle_text`) into clean spoken `tts_text`.
+
+    - Never lets TTS speak literal 'underscore' or '@' symbols.
+    - Maps brand handles & underscored brand names to `brand_spoken_name` ('Bill Explains').
+    - Converts complex scientific words, units, and uppercase acronyms to natural spoken forms.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+
+    pdict = _load_pronunciation_dict()
+    spoken_brand = get_brand_spoken_name()
+
+    # 1. Strip markdown & URLs/formatting tokens
+    s = re.sub(r"[`*_~#]+", " ", raw)
+
+    # 2. Replace handle variants and configured handle replacements cleanly
+    handle_map = dict(pdict.get("handle_replacements") or {})
+    for k, v in sorted(handle_map.items(), key=lambda kv: -len(kv[0])):
+        s = re.sub(re.escape(k), str(v), s, flags=re.IGNORECASE)
+    s = re.sub(r"@?[Bb]ill[_\s]*[Ee]xplains\d*", spoken_brand, s)
+
+    # 3. Convert unit patterns cleanly (e.g. 5000 mAh -> 5000 milliamp hours)
+    for item in pdict.get("unit_patterns") or []:
+        pat = item.get("pattern")
+        rep = item.get("replacement")
+        if pat and rep is not None:
+            try:
+                s = re.sub(pat, rep, s)
+            except re.error:
+                pass
+
+    # 4. Exact phrases / scientific terms / acronyms
+    exact = dict(pdict.get("exact_phrases") or {})
+    for term, spoken in sorted(exact.items(), key=lambda kv: -len(kv[0])):
+        if not term:
+            continue
+        # Acronyms (mostly uppercase) match case-sensitively on word boundaries; lowercase science words match case-insensitively
+        flags = 0 if any(c.isupper() for c in term) and term != term.capitalize() else re.IGNORECASE
+        s = re.sub(rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])", str(spoken), s, flags=flags)
+
+    # 5. Scrub any remaining underscores or '@' so TTS never reads 'underscore' or 'at'
+    s = s.replace("_", " ").replace("@", "")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def sanitize_subtitle_text(text: str) -> str:
+    """Keep clean standard American English for on-screen subtitles without odd underscores/artifacts."""
+    s = (text or "").strip()
+    spoken_brand = get_brand_spoken_name()
+    s = re.sub(r"[`*]+", "", s)
+    s = re.sub(r"@?[Bb]ill_[Ee]xplains\d*", spoken_brand, s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 
 def probe_duration(media_path: Path) -> float:
@@ -77,7 +150,7 @@ def _group_words_to_chunks(
     for w_start, w_end, word in word_events:
         pause_gap = (w_start - buf[-1][1]) if buf else 0.0
         if buf and (
-            pause_gap > 0.20
+            pause_gap > 0.16
             or len(buf) >= max_words
             or cur_chars + len(word) + 1 > max_chars
             or buf[-1][2].endswith((".", "!", "?", ","))
@@ -101,9 +174,9 @@ def _fallback_proportional_chunks(
         return []
     weights = [max(len(w), 2) + (3 if w.endswith((".", "!", "?", ",")) else 0) for w in words]
     total_w = sum(weights)
-    usable_dur = max(0.3, speech_duration - 0.08)
+    usable_dur = max(0.3, speech_duration - 0.06)
 
-    cursor = 0.03
+    cursor = 0.02
     word_events: list[tuple[float, float, str]] = []
     for w, wt in zip(words, weights):
         dur = usable_dur * (wt / total_w)
@@ -158,12 +231,11 @@ def _check_elevenlabs_quota(api_key: str, needed_chars: int) -> tuple[bool, str]
                 return False, f"remaining credits {limit - used} < needed {needed_chars}"
         return True, "ok"
     except Exception:
-        # Don't block if subscription endpoint is unreachable; let TTS call decide.
         return True, "skip_precheck"
 
 
 def _synth_one_scene_elevenlabs(
-    text: str,
+    tts_text: str,
     out_mp3: Path,
     api_key: str,
     voice_id: str,
@@ -175,7 +247,7 @@ def _synth_one_scene_elevenlabs(
         "Content-Type": "application/json",
     }
     payload = {
-        "text": text,
+        "text": tts_text,
         "model_id": model_id,
         "voice_settings": {
             "stability": 0.48,
@@ -211,14 +283,14 @@ def _synth_one_scene_elevenlabs(
 
 
 async def _synth_one_scene_edge(
-    text: str,
+    tts_text: str,
     out_mp3: Path,
     voice: str,
     rate: str,
     pitch: str,
 ) -> list[tuple[float, float, str]]:
     communicate = edge_tts.Communicate(
-        text=text,
+        text=tts_text,
         voice=voice,
         rate=rate,
         pitch=pitch,
@@ -246,13 +318,15 @@ def _synthesize_all_scenes(
     edge_voice: str,
     rate: str,
     pitch: str,
-) -> list[tuple[SceneSpec, Path, list[tuple[float, float, str]]]]:
-    results: list[tuple[SceneSpec, Path, list[tuple[float, float, str]]]] = []
+) -> list[tuple[SceneSpec, str, str, Path, list[tuple[float, float, str]]]]:
+    results: list[tuple[SceneSpec, str, str, Path, list[tuple[float, float, str]]]] = []
     for scene in scenes:
+        sub_text = sanitize_subtitle_text(scene.narration)
+        tts_text = normalize_for_tts(sub_text)
         raw_mp3 = voice_parts_dir / f"{scene.scene_id}.mp3"
         if use_elevenlabs:
             word_events = _synth_one_scene_elevenlabs(
-                scene.narration,
+                tts_text,
                 raw_mp3,
                 api_key=el_key,
                 voice_id=el_voice,
@@ -260,31 +334,56 @@ def _synthesize_all_scenes(
             )
         else:
             word_events = asyncio.run(
-                _synth_one_scene_edge(scene.narration, raw_mp3, voice=edge_voice, rate=rate, pitch=pitch)
+                _synth_one_scene_edge(tts_text, raw_mp3, voice=edge_voice, rate=rate, pitch=pitch)
             )
-        results.append((scene, raw_mp3, word_events))
+        results.append((scene, tts_text, sub_text, raw_mp3, word_events))
     return results
+
+
+def _align_subtitles_to_duration(
+    sub_text: str,
+    word_events: list[tuple[float, float, str]],
+    offset_sec: float,
+    speech_duration: float,
+) -> list[SubtitleChunk]:
+    """Keep clean standard American English spelling on screen while using real speech timing."""
+    if not word_events:
+        return _fallback_proportional_chunks(sub_text, offset_sec=offset_sec, speech_duration=speech_duration)
+    sub_words = [w for w in sub_text.strip().split() if w]
+    max_ev = max(e[1] for e in word_events) if word_events else speech_duration
+    scale = (speech_duration / max_ev) if max_ev > 0 else 1.0
+    scaled_events = [(s * scale, e * scale, w) for s, e, w in word_events]
+
+    # When normalized TTS tokens differ in count from clean American English words, remap timings linearly over clean words
+    if len(sub_words) == len(scaled_events):
+        mapped = [(scaled_events[i][0], scaled_events[i][1], sub_words[i]) for i in range(len(sub_words))]
+        return _group_words_to_chunks(mapped, offset_sec=offset_sec)
+    return _fallback_proportional_chunks(sub_text, offset_sec=offset_sec, speech_duration=speech_duration)
 
 
 def generate_episode_voiceover(
     scenes: list[SceneSpec],
     out_dir: Path,
     voice: str = DEFAULT_EDGE_VOICE,
-    rate: str = "+2%",
+    rate: str = "+3%",
     pitch: str = "+2Hz",
-    inter_scene_pause_sec: float = 0.22,
-) -> tuple[str, list[SceneVoiceResult], list[SubtitleChunk], float]:
-    """Generate voiceover per scene: ElevenLabs first, clean episode-wide fallback to Edge-TTS if limited."""
+    inter_scene_pause_sec: float = 0.14,
+) -> tuple[str, list[SceneVoiceResult], list[SubtitleChunk], float, str]:
+    """Generate voiceover per scene: ElevenLabs first, clean full-episode fallback to Edge-TTS if limited.
+
+    Returns (voiceover_full_path, scene_results, subtitles, total_duration_sec, engine_label).
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     voice_parts_dir = out_dir / "voice_parts"
     voice_parts_dir.mkdir(parents=True, exist_ok=True)
+    inter_scene_pause_sec = min(0.15, max(0.06, float(inter_scene_pause_sec)))
 
     el_key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
     el_voice = os.environ.get("ELEVENLABS_VOICE_ID", "").strip() or DEFAULT_ELEVENLABS_VOICE_ID
     el_model = os.environ.get("ELEVENLABS_MODEL_ID", "").strip() or DEFAULT_ELEVENLABS_MODEL_ID
     use_elevenlabs = bool(el_key)
 
-    total_chars = sum(len(s.narration or "") for s in scenes)
+    total_chars = sum(len(normalize_for_tts(s.narration or "")) for s in scenes)
     if use_elevenlabs:
         ok_quota, reason = _check_elevenlabs_quota(el_key, total_chars)
         if not ok_quota:
@@ -295,6 +394,7 @@ def generate_episode_voiceover(
     else:
         print(f"[tts] ELEVENLABS_API_KEY not set — using Edge-TTS ({voice})")
 
+    engine_used = "ElevenLabs" if use_elevenlabs else f"Edge-TTS ({voice})"
     try:
         raw_parts = _synthesize_all_scenes(
             scenes=scenes,
@@ -310,6 +410,7 @@ def generate_episode_voiceover(
     except Exception as exc:
         if use_elevenlabs:
             print(f"[tts] ElevenLabs failed ({exc}) — falling back to Edge-TTS ({voice}) for consistent full episode")
+            engine_used = f"Edge-TTS ({voice})"
             raw_parts = _synthesize_all_scenes(
                 scenes=scenes,
                 voice_parts_dir=voice_parts_dir,
@@ -349,7 +450,13 @@ def generate_episode_voiceover(
     )
 
     cursor = 0.0
-    for idx, (scene, raw_mp3, word_events) in enumerate(raw_parts):
+    # Trim leading/trailing silence AND compress mid-sentence silences > 0.15s down to 0.15s
+    af_trim = (
+        "silenceremove=start_periods=1:start_threshold=-45dB:detection=peak:"
+        "stop_periods=-1:stop_duration=0.15:stop_threshold=-44dB,"
+        "areverse,silenceremove=start_periods=1:start_threshold=-45dB:detection=peak,areverse"
+    )
+    for idx, (scene, _tts_text, sub_text, raw_mp3, word_events) in enumerate(raw_parts):
         clean_wav = voice_parts_dir / f"{scene.scene_id}.wav"
         subprocess.run(
             [
@@ -362,8 +469,7 @@ def generate_episode_voiceover(
                 "-ac",
                 "1",
                 "-af",
-                "silenceremove=start_periods=1:start_threshold=-45dB:detection=peak,"
-                "areverse,silenceremove=start_periods=1:start_threshold=-45dB:detection=peak,areverse",
+                af_trim,
                 "-c:a",
                 "pcm_s16le",
                 str(clean_wav),
@@ -374,18 +480,16 @@ def generate_episode_voiceover(
         )
 
         speech_dur = probe_duration(clean_wav)
-        if word_events:
-            max_ev = max(e[1] for e in word_events)
-            scale = speech_dur / max_ev if max_ev > 0 else 1.0
-            scaled = [(s * scale, e * scale, w) for s, e, w in word_events]
-            subs = _group_words_to_chunks(scaled, offset_sec=cursor)
-        else:
-            subs = _fallback_proportional_chunks(
-                scene.narration, offset_sec=cursor, speech_duration=speech_dur
-            )
+        subs = _align_subtitles_to_duration(
+            sub_text=sub_text,
+            word_events=word_events,
+            offset_sec=cursor,
+            speech_duration=speech_dur,
+        )
 
         is_last = idx == len(raw_parts) - 1
-        tail_sec = 2.0 if is_last else inter_scene_pause_sec
+        # Zero dead-air outro: final scene ends cleanly 0.15s after final spoken syllable
+        tail_sec = 0.15 if is_last else inter_scene_pause_sec
         seg_dur = speech_dur + tail_sec
         scene_results.append(
             SceneVoiceResult(
@@ -454,4 +558,4 @@ def generate_episode_voiceover(
         stderr=subprocess.DEVNULL,
     )
     total_dur = probe_duration(full_voice)
-    return str(full_voice), scene_results, all_subtitles, total_dur
+    return str(full_voice), scene_results, all_subtitles, total_dur, engine_used

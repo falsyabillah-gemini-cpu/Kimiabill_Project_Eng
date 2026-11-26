@@ -1,19 +1,30 @@
-"""24/7 Automated Scheduler for Everyday Sci-Tech International Studio.
+"""24/7 Automated Scheduler & Human-in-the-Loop Audit Gate Orchestrator.
 
-Runs the full 8-agent pipeline automatically on a 2x/day global prime-time schedule
-(default 04:00 & 21:00 WIB -> 16:00 EST & 09:00 EST, offset from Kimiabill to avoid API rate limits).
+Schedule (Asia/Jakarta, WIB):
+- Slot 1 (default DAILY_VIDEO_COUNT=1): Produce 19:30 WIB -> Interactive Audit -> Reminder 20:30 WIB -> AI Fallback 20:45 WIB -> Publish 21:00 WIB (09:00 EST).
+- Slot 2 (when DAILY_VIDEO_COUNT=2): Produce 20:15 WIB -> Interactive Audit -> Reminder 22:00 WIB -> AI Fallback 22:30 WIB -> Publish 04:00 WIB (16:00 EST).
+
+All generated videos upload as `unlisted` first (`PUBLISH_MODE=draft`, `ALLOW_DIRECT_PUBLIC=false`)
+and transition to scheduled/public ONLY upon explicit Owner Approval or AI Chief Editor APPROVE.
 """
 from __future__ import annotations
 
+import argparse
+import json
 import os
 import re
 import time
 import traceback
+from collections import Counter
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from src.brand_config import get_brand_name, get_daily_slots_wib
 from src.pipeline import (
+    BASE_DIR,
+    episode_paths,
     load_configs,
     load_dotenv,
     load_or_init_state,
@@ -29,6 +40,20 @@ from src.pipeline import (
     save_state,
 )
 from src.tools.gdrive_sync import can_upload_to_gdrive
+from src.tools.pending_review import (
+    compute_target_publish_iso,
+    get_pending_review,
+    load_pending_reviews,
+    mark_review_status,
+    upsert_pending_review,
+)
+from src.tools.social_publisher import delete_youtube_video, schedule_or_publish_youtube_video
+from src.tools.telegram_notify import (
+    disable_audit_keyboard,
+    send_interactive_audit_message,
+    send_telegram_message,
+)
+from src.tools.trend_scout import add_rejected_topic
 
 WIB = ZoneInfo("Asia/Jakarta")
 
@@ -52,6 +77,23 @@ def _is_late_slot(hour: int) -> bool:
     return hour >= 12
 
 
+def _resolve_slot(slot_override: Optional[str] = None) -> str:
+    if slot_override in ("slot_2100", "slot_0400"):
+        return slot_override
+    slot_env = os.environ.get("STUDIO_SLOT", "").strip()
+    if slot_env in ("slot_2100", "slot_0400"):
+        return slot_env
+    target_pub = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
+    if ":" in target_pub:
+        try:
+            hr = int(target_pub.split(":", 1)[0])
+            return "slot_0400" if hr < 12 else "slot_2100"
+        except Exception:
+            pass
+    now_hr = datetime.now(WIB).hour
+    return "slot_0400" if now_hr < 10 else "slot_2100"
+
+
 def _tg_status(message: str) -> None:
     """Best-effort live Telegram status update during automated production (never raises)."""
     try:
@@ -63,9 +105,32 @@ def _tg_status(message: str) -> None:
         pass
 
 
-def run_one_automated_episode() -> None:
+def _summarize_footage_tiers(assets: list[Any]) -> str:
+    if not assets:
+        return "Tier 1"
+    counts = Counter(str(getattr(a, "footage_tier", "tier_1_stock_video") or "tier_1_stock_video") for a in assets)
+    parts = [f"{k}={v}" for k, v in counts.items()]
+    return ", ".join(parts)
+
+
+def run_one_automated_episode(
+    topic_hint: Optional[str] = None,
+    slot_override: Optional[str] = None,
+    target_publish_iso_override: Optional[str] = None,
+    revision_count_override: int = 0,
+    extra_avoid_titles: Optional[list[str]] = None,
+) -> Optional[dict[str, Any]]:
     load_dotenv()
     brand_name = get_brand_name()
+    slot = _resolve_slot(slot_override)
+    target_publish_iso = target_publish_iso_override or compute_target_publish_iso(slot)
+
+    # Hard Rule: Automated runs ALWAYS produce as unlisted draft first unless explicitly dry_run
+    requested_mode = os.environ.get("PUBLISH_MODE", "draft").strip().lower()
+    if requested_mode != "dry_run":
+        os.environ["PUBLISH_MODE"] = "draft"
+        os.environ["ALLOW_DIRECT_PUBLIC"] = "false"
+
     try:
         from src.tools.telegram_notify import sync_telegram_feedback_updates
 
@@ -81,81 +146,68 @@ def run_one_automated_episode() -> None:
             "[scheduler] runtime_mode is 'antigravity_local'. "
             "Set runtime_mode: production in config/agents.yaml for 24/7 automation."
         )
-        return
+        return None
 
     guardrails = brand_cfg.get("guardrails", {})
     max_revisions = int(guardrails.get("max_revisions", 4))
     max_topic_attempts = int(guardrails.get("max_topic_attempts", 3))
-    avoid_titles: list[str] = []
+    avoid_titles: list[str] = list(extra_avoid_titles or [])
+
     try:
         from src.tools.weekly_growth_auditor import HISTORY_PATH
-        import json as _json
 
         if HISTORY_PATH.exists():
-            hist_items = _json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
+            hist_items = json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
             for row in hist_items[-16:]:
                 t = (row.get("title") or "").strip()
                 if t and t not in avoid_titles:
                     avoid_titles.append(t)
-            if os.environ.get("SKIP_IF_SLOT_PUBLISHED", "").lower() == "true":
-                now_wib = datetime.now(WIB)
-                target_pub_env = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
-                slot_late = (
-                    _is_late_slot(int(target_pub_env.split(":", 1)[0]))
-                    if ":" in target_pub_env
-                    else _is_late_slot(now_wib.hour)
-                )
-                for row in reversed(hist_items):
-                    pub_at = row.get("published_at_wib") or ""
-                    has_slot_proof = (
-                        bool(row.get("youtube_url"))
-                        if row.get("publish_mode", "public") != "dry_run"
-                        else bool(row.get("gdrive_folder_url"))
+
+        if os.environ.get("SKIP_IF_SLOT_PUBLISHED", "").lower() == "true" and not topic_hint:
+            target_date = target_publish_iso[:10]
+            # Check multi-slot pending_review.json first (precise per-slot & per-target-date lock)
+            pr_store = load_pending_reviews().get("episodes") or {}
+            for row in pr_store.values():
+                if (
+                    isinstance(row, dict)
+                    and row.get("slot") == slot
+                    and str(row.get("target_publish_iso") or "").startswith(target_date)
+                    and row.get("status") in ("awaiting_review", "approved", "approved_by_ai")
+                ):
+                    print(
+                        f"[scheduler] Slot '{slot}' already drafted/approved for {target_date} "
+                        f"({row.get('episode_id')} status={row.get('status')}) — skipping duplicate cron."
                     )
-                    if (
-                        pub_at.startswith(now_wib.strftime("%Y-%m-%d"))
-                        and row.get("publish_mode", "public") == "public"
-                        and has_slot_proof
-                    ):
-                        try:
-                            pub_hour = datetime.fromisoformat(pub_at).hour
-                            if _is_late_slot(pub_hour) == slot_late:
-                                print(
-                                    f"[scheduler] Slot already published today "
-                                    f"({row.get('youtube_url') or row.get('gdrive_folder_url')}) — skipping duplicate cron."
-                                )
-                                return
-                        except Exception:
-                            pass
+                    return None
     except Exception:
         pass
 
     # Check if Agent 8 queued a viewer comment request to fulfill on weekday slots
     pending_req: dict | None = None
-    try:
-        from src.pipeline import _is_weekend_tech_radar_mode
-        from src.tools.weekly_growth_auditor import get_next_pending_audience_request
+    if not topic_hint:
+        try:
+            from src.pipeline import _is_weekend_tech_radar_mode
+            from src.tools.weekly_growth_auditor import get_next_pending_audience_request
 
-        if not _is_weekend_tech_radar_mode():
-            pending_req = get_next_pending_audience_request()
-            if pending_req:
-                print(
-                    f"[scheduler] Fulfilling VIEWER REQUEST from {pending_req.get('requester_name')}: "
-                    f"{pending_req.get('topic_title')}"
-                )
-    except Exception:
-        pending_req = None
+            if not _is_weekend_tech_radar_mode():
+                pending_req = get_next_pending_audience_request()
+                if pending_req:
+                    print(
+                        f"[scheduler] Fulfilling VIEWER REQUEST from {pending_req.get('requester_name')}: "
+                        f"{pending_req.get('topic_title')}"
+                    )
+        except Exception:
+            pending_req = None
 
     run_t0 = time.monotonic()
     max_recovery_rounds = max(1, int(os.environ.get("MAX_RECOVERY_ROUNDS", "2")))
     max_wall_clock_sec = float(os.environ.get("MAX_PRODUCTION_WALL_SEC", str(120 * 60)))
-    pub_mode_start = os.environ.get("PUBLISH_MODE", "public").strip().lower()
-    target_pub_label = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip() or "langsung tayang"
+    pub_mode_start = os.environ.get("PUBLISH_MODE", "draft").strip().lower()
     _tg_status(
-        f"🎬 [{brand_name}] Mulai produksi video otomatis!\n"
-        f"• Target tayang: {target_pub_label} WIB\n"
-        f"• Mode: {pub_mode_start}\n"
-        f"• Auto-retry aktif hingga {max_recovery_rounds} ronde ({max_recovery_rounds * max_topic_attempts} percobaan)"
+        f"🎬 [{brand_name}] Starting automated production\n"
+        f"• Slot: {slot} (Target publish: {target_publish_iso})\n"
+        f"• Stage: Render -> Unlisted Draft -> Interactive Audit Gate\n"
+        f"• Auto-retry: up to {max_recovery_rounds} rounds ({max_recovery_rounds * max_topic_attempts} attempts)"
     )
 
     last_err = "Unknown error"
@@ -175,7 +227,7 @@ def run_one_automated_episode() -> None:
                 pass
             now = datetime.now(WIB)
             ep_suffix = "" if (recovery_round == 1 and topic_attempt == 1) else f"_r{recovery_round}t{topic_attempt}"
-            episode_id = f"ep_{now.strftime('%Y%m%d_%H%M')}{ep_suffix}"
+            episode_id = f"ep_{now.strftime('%Y%m%d_%H%M%S')}{ep_suffix}"
             print(
                 f"[scheduler] [{brand_name}] Starting automated production "
                 f"(round {recovery_round}/{max_recovery_rounds}, attempt {topic_attempt}/{max_topic_attempts}): {episode_id}"
@@ -183,10 +235,10 @@ def run_one_automated_episode() -> None:
 
             title = "-"
             try:
-                use_req = pending_req if (recovery_round == 1 and topic_attempt == 1) else None
+                use_req = pending_req if (recovery_round == 1 and topic_attempt == 1 and not topic_hint) else None
                 state = run_agent_1_to_3(
                     episode_id,
-                    topic_hint=use_req.get("topic_title") if use_req else None,
+                    topic_hint=topic_hint or (use_req.get("topic_title") if use_req else None),
                     avoid_titles=avoid_titles,
                     requested_by=use_req.get("requester_name") if use_req else None,
                     request_id=use_req.get("request_id") if use_req else None,
@@ -197,13 +249,13 @@ def run_one_automated_episode() -> None:
                 title = state.agent3.title if state.agent3 else "-"
                 print(f"[scheduler] Agents 1-3 complete: {title}")
                 _tg_status(
-                    f"📝 [{brand_name}] Skrip siap (Ronde {recovery_round}, Percobaan #{topic_attempt}):\n"
+                    f"📝 [{brand_name}] Script ready (Round {recovery_round}, Attempt #{topic_attempt}):\n"
                     f"\"{title}\"\n"
-                    f"⏳ Sedang cari footage, TTS, animasi & QA render..."
+                    f"⏳ Scouting 3-tier visuals, TTS, animations & QA render..."
                 )
 
                 state = run_agent_6_scout(episode_id)
-                print(f"[scheduler] Agent 6 complete: {len(state.agent6.assets) if state.agent6 else 0} real-footage clips")
+                print(f"[scheduler] Agent 6 complete: {len(state.agent6.assets) if state.agent6 else 0} visual assets")
 
                 font_ratio = 0.052
                 scene_offsets: dict[str, float] = {}
@@ -241,7 +293,7 @@ def run_one_automated_episode() -> None:
                         affected = _extract_affected_scenes(audit, valid_scene_ids)
                         need_rescout = (
                             audit.revision_target in ("asset_scout", "both")
-                            or audit.visual_relevance_score < 8.0
+                            or audit.visual_relevance_score < 7.5
                         )
                         if need_rescout:
                             target_scenes = affected or valid_scene_ids[1:-1] or valid_scene_ids
@@ -256,13 +308,13 @@ def run_one_automated_episode() -> None:
                             font_ratio = 0.050 if audit.subtitle_readability_score < 8.0 else font_ratio
 
                 if not qa_passed:
-                    last_err = f"Topik '{title}' gagal QA setelah {max_revisions} revisi"
-                    print(f"[scheduler] {last_err}. NOT uploading; trying a new topic...")
+                    last_err = f"Topic '{title}' failed QA after {max_revisions} revisions"
+                    print(f"[scheduler] {last_err}. Trying next topic...")
                     state.status = "needs_human_review"
                     save_state(state)
                     if title and title != "-":
                         avoid_titles.append(title)
-                    _tg_status(f"⚠️ [{brand_name}] Percobaan #{total_attempts_done} gagal QA ({title}). Otomatis mengulang dengan topik baru...")
+                    _tg_status(f"⚠️ [{brand_name}] Attempt #{total_attempts_done} failed QA ({title}). Retrying with new topic...")
                     continue
 
                 try:
@@ -273,94 +325,101 @@ def run_one_automated_episode() -> None:
                 hd_ok = bool(state.gate0 and state.gate0.passed)
                 print(f"[scheduler] Final 1080p render complete: {final_video} (Gate 0 HD passed={hd_ok})")
                 if not hd_ok:
-                    last_err = f"Gate 0 HD gagal pada '{title}'"
+                    last_err = f"Gate 0 HD failed on '{title}'"
                     print(f"[scheduler] {last_err}; trying next topic...")
                     if title and title != "-":
                         avoid_titles.append(title)
-                    _tg_status(f"⚠️ [{brand_name}] Percobaan #{total_attempts_done} gagal Gate 0 HD ({title}). Otomatis mengulang...")
+                    _tg_status(f"⚠️ [{brand_name}] Attempt #{total_attempts_done} failed Gate 0 HD ({title}). Retrying...")
                     continue
 
                 qa_summary = (
-                    f"QA PASSED | Score: {last_audit.overall_score}/10 | "
-                    f"Visual: {last_audit.visual_relevance_score} | Subtitles: {last_audit.subtitle_readability_score} | "
-                    f"Audio: {last_audit.pacing_and_audio_score} | Revisions: {state.revision_count}x"
+                    f"Score {last_audit.overall_score:.1f}/10 "
+                    f"(Vis {last_audit.visual_relevance_score:.1f}, Sub {last_audit.subtitle_readability_score:.1f}, "
+                    f"Aud {last_audit.pacing_and_audio_score:.1f})"
                     if last_audit
                     else "QA PASSED"
                 )
 
-                state = run_agent_7_publish(episode_id)
+                state = run_agent_7_publish(episode_id, mode=pub_mode_start)
                 print(f"[scheduler] Agent 7 complete: {[r.model_dump() for r in (state.agent7.publish_results if state.agent7 else [])]}")
 
                 prod_elapsed = time.monotonic() - run_t0
 
-                target_pub = os.environ.get("TARGET_PUBLISH_TIME_WIB", "").strip()
-                if target_pub and datetime.now(WIB).weekday() in (5, 6):
-                    try:
-                        from src.tools.weekly_growth_auditor import load_latest_agent_directives
+                # Upload immediately as unlisted draft + Drive folder (NO sleep waiting for target publish time)
+                if os.environ.get("AUTO_UPLOAD_GDRIVE", "true").lower() == "true" and can_upload_to_gdrive():
+                    state = run_upload(
+                        episode_id,
+                        allow_youtube=(pub_mode_start != "dry_run"),
+                        qa_summary=qa_summary,
+                        topic_attempts_used=total_attempts_done,
+                        production_seconds=prod_elapsed,
+                    )
+                    print(
+                        f"[scheduler] Uploaded draft to Google Drive & Unlisted YouTube: "
+                        f"{state.gdrive_folder_url} | YouTube: {state.youtube_url}"
+                    )
 
-                        rec_hours = load_latest_agent_directives().get("recommended_weekend_hours_wib") or []
-                        is_late = _is_late_slot(int(target_pub.split(":", 1)[0]))
-                        picked = [h for h in rec_hours if ":" in h and _is_late_slot(int(h.split(":", 1)[0])) == is_late]
-                        if picked:
-                            target_pub = picked[0].strip()
-                            print(f"[scheduler] Weekend TECH_RADAR using Agent 8 optimal hour: {target_pub} WIB")
+                paths = episode_paths(episode_id)
+                yt_vid_id = ""
+                yt_meta_path = paths["handoffs"] / "youtube_upload.json"
+                if yt_meta_path.exists():
+                    try:
+                        yt_meta = json.loads(yt_meta_path.read_text(encoding="utf-8"))
+                        yt_vid_id = str(yt_meta.get("video_id") or "")
+                        if not state.youtube_url and yt_meta.get("youtube_url"):
+                            state.youtube_url = yt_meta.get("youtube_url")
                     except Exception:
                         pass
-                if target_pub and ":" in target_pub:
+
+                tts_engine = "Edge-TTS"
+                tts_meta_path = paths["handoffs"] / "tts_meta.json"
+                if tts_meta_path.exists():
                     try:
-                        th, tm = (int(x) for x in target_pub.split(":", 1))
-                        now_wib = datetime.now(WIB)
-                        target_dt = now_wib.replace(hour=th, minute=tm, second=0, microsecond=0)
-                        wait_sec = (target_dt - now_wib).total_seconds() - 90.0
-                        if 0 < wait_sec <= 9000:
-                            print(
-                                f"[scheduler] Video QA passed! Waiting for publish window {target_pub} WIB "
-                                f"({int(wait_sec // 60)}m {int(wait_sec % 60)}s left)..."
-                            )
-                            _tg_status(
-                                f"⏳ [{brand_name}] Video \"{title}\" lolos QA ({last_audit.overall_score if last_audit else 9.0}/10)! "
-                                f"Menunggu jendela tayang {target_pub} WIB ({int(wait_sec // 60)} menit lagi)..."
-                            )
-                            time.sleep(wait_sec)
-                    except Exception as exc:
-                        print(f"[scheduler] Ignoring TARGET_PUBLISH_TIME_WIB='{target_pub}': {exc}")
+                        tts_engine = str(json.loads(tts_meta_path.read_text(encoding="utf-8")).get("tts_engine") or "Edge-TTS")
+                    except Exception:
+                        pass
 
-                if os.environ.get("AUTO_UPLOAD_GDRIVE", "true").lower() == "true":
-                    if can_upload_to_gdrive():
-                        state = run_upload(
-                            episode_id,
-                            allow_youtube=True,
-                            qa_summary=qa_summary,
-                            topic_attempts_used=total_attempts_done,
-                            production_seconds=prod_elapsed,
-                        )
-                        print(f"[scheduler] Uploaded to Google Drive & YouTube Shorts: {state.gdrive_folder_url} | YouTube: {state.youtube_url}")
-                        pub_mode_now = os.environ.get("PUBLISH_MODE", "public").strip().lower()
-                        if pub_mode_now in ("public", "draft") and not state.youtube_url:
-                            raise RuntimeError(
-                                f"Video '{episode_id}' uploaded to Drive ({state.gdrive_folder_url}), "
-                                "but YouTube auto-upload FAILED (youtube_url empty)."
-                            )
-                        if (
-                            state.request_id
-                            and pub_mode_now == "public"
-                            and state.status == "uploaded"
-                            and state.youtube_url
-                        ):
-                            try:
-                                from src.tools.weekly_growth_auditor import mark_audience_request_fulfilled
+                winner_cand = (
+                    next((c for c in state.agent1.candidates if c.id == state.agent2.winner_id), None)
+                    if state.agent1 and state.agent2
+                    else None
+                )
+                ref_url = (
+                    state.agent3.references[0].url
+                    if (state.agent3 and state.agent3.references)
+                    else ""
+                )
+                gh_run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
+                art_name = f"studio-episode-{gh_run_id or episode_id}"
+                art_ref = f"{gh_run_id}:{art_name}" if gh_run_id else art_name
 
-                                mark_audience_request_fulfilled(
-                                    state.request_id,
-                                    episode_id,
-                                    youtube_url=state.youtube_url,
-                                )
-                                print(f"[scheduler] Viewer request '{state.request_id}' ({state.requested_by}) marked fulfilled!")
-                            except Exception:
-                                pass
-                    else:
-                        print("[scheduler] Skipping Google Drive upload (GDRIVE_WEBHOOK_URL missing and 'gdrive' CLI not installed).")
-                return
+                entry = upsert_pending_review({
+                    "episode_id": episode_id,
+                    "slot": slot,
+                    "topic_title": state.agent3.title if state.agent3 else title,
+                    "topic_slug": state.agent3.episode_slug if state.agent3 else episode_id,
+                    "pillar": winner_cand.discipline if winner_cand else "gadgets",
+                    "section_tag": state.render_plan.section_tag if state.render_plan else "EVERYDAY_TECH",
+                    "source_url": ref_url,
+                    "youtube_video_id": yt_vid_id,
+                    "youtube_url": state.youtube_url or "",
+                    "drive_url": state.gdrive_folder_url or "",
+                    "video_artifact_ref": art_ref,
+                    "final_video_path": str(final_video),
+                    "thumbnail_path": (state.agent7.thumbnail_path if state.agent7 else "") or "",
+                    "footage_tier_summary": _summarize_footage_tiers(state.agent6.assets if state.agent6 else []),
+                    "tts_engine": tts_engine,
+                    "revision_count": revision_count_override,
+                    "qa_summary": qa_summary,
+                    "duration_sec": round(state.render_plan.total_duration_sec if state.render_plan else 0.0, 1),
+                    "target_publish_iso": target_publish_iso,
+                    "status": "awaiting_review",
+                })
+                msg_id = send_interactive_audit_message(entry, video_path=Path(final_video))
+                if msg_id:
+                    entry = upsert_pending_review({"episode_id": episode_id, "telegram_message_id": msg_id})
+                return entry
+
             except Exception as exc:
                 raw_msg = str(exc) or exc.__class__.__name__
                 last_err = re.sub(r"([?&](?:key|token)=)[^&\s'\"]+", r"\1***", raw_msg)
@@ -373,20 +432,20 @@ def run_one_automated_episode() -> None:
                     consecutive_quota_errors += 1
                     if consecutive_quota_errors >= 2:
                         _tg_status(
-                            f"🛑 [{brand_name}] Kuota Gemini API habis (429/503 beruntun setelah jeda RPM).\n"
-                            f"Produksi dihentikan sementara agar kuota pulih pada jadwal berikutnya."
+                            f"🛑 [{brand_name}] Gemini API quota exhausted (consecutive 429/503).\n"
+                            f"Stopping temporarily so quota recovers cleanly."
                         )
                         raise RuntimeError(f"Gemini API quota exhausted across consecutive attempts: {last_err}") from exc
                     _tg_status(
-                        f"⏳ [{brand_name}] Percobaan #{total_attempts_done} kena limit Gemini (429). "
-                        f"Menunggu 75 detik agar kuota RPM pulih sebelum mencoba ulang 1x lagi..."
+                        f"⏳ [{brand_name}] Attempt #{total_attempts_done} hit Gemini RPM limit (429). "
+                        f"Waiting 75s before retrying 1x..."
                     )
                     time.sleep(75)
                 else:
                     consecutive_quota_errors = 0
                     _tg_status(
-                        f"⚠️ [{brand_name}] Percobaan #{total_attempts_done} gagal: {last_err[:160]}\n"
-                        f"Otomatis mengulang dengan topik baru..."
+                        f"⚠️ [{brand_name}] Attempt #{total_attempts_done} failed: {last_err[:160]}\n"
+                        f"Retrying with a fresh topic..."
                     )
                 continue
 
@@ -394,21 +453,153 @@ def run_one_automated_episode() -> None:
             cooldown_s = min(180, 75 * recovery_round)
             print(f"[scheduler] Recovery round {recovery_round} exhausted; cooling down {cooldown_s}s before round {recovery_round + 1}...")
             _tg_status(
-                f"🔄 [{brand_name}] Ronde {recovery_round}/{max_recovery_rounds} gagal ({last_err[:140]}). "
-                f"Jeda {cooldown_s} detik lalu lanjut ronde {recovery_round + 1}..."
+                f"🔄 [{brand_name}] Round {recovery_round}/{max_recovery_rounds} failed ({last_err[:140]}). "
+                f"Cooling down {cooldown_s}s before round {recovery_round + 1}..."
             )
             time.sleep(cooldown_s)
 
     _tg_status(
-        f"❌ [{brand_name}] Produksi terhenti setelah {total_attempts_done} percobaan ({max_recovery_rounds} ronde).\n"
-        f"Error terakhir: {last_err[:220]}"
+        f"❌ [{brand_name}] Production stopped after {total_attempts_done} attempts ({max_recovery_rounds} rounds).\n"
+        f"Last error: {last_err[:220]}"
     )
     raise RuntimeError(
         f"All {total_attempts_done} automated production attempts across {max_recovery_rounds} rounds failed: {last_err}"
     )
 
 
-def main() -> None:
+def _resolve_target_episode(episode_id: Optional[str]) -> dict[str, Any]:
+    if episode_id:
+        row = get_pending_review(episode_id)
+        if row:
+            return row
+    store = load_pending_reviews().get("episodes") or {}
+    cands = [
+        dict(v)
+        for v in store.values()
+        if isinstance(v, dict) and v.get("status") in ("awaiting_review", "revising", "held_by_ai")
+    ]
+    if not cands:
+        raise RuntimeError(f"No actionable pending episode found for episode_id='{episode_id or ''}'")
+    cands.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+    return cands[0]
+
+
+def handle_approve_episode(episode_id: Optional[str] = None) -> dict[str, Any]:
+    """Approve an unlisted draft and schedule/publish it to YouTube."""
+    load_dotenv()
+    entry = _resolve_target_episode(episode_id)
+    ep_id = str(entry["episode_id"])
+    if entry.get("status") in ("approved", "approved_by_ai"):
+        return {"skipped": True, "episode_id": ep_id, "status": entry.get("status")}
+
+    first_comment = ""
+    req_id = None
+    try:
+        st = load_or_init_state(ep_id)
+        req_id = st.request_id
+        if st.agent7 and st.agent7.platform_copies:
+            yt_cp = next((c for c in st.agent7.platform_copies if c.platform == "youtube_shorts"), None)
+            if yt_cp:
+                first_comment = yt_cp.pinned_comment
+    except Exception:
+        pass
+
+    pub_res = schedule_or_publish_youtube_video(
+        video_id=str(entry.get("youtube_video_id") or ""),
+        target_publish_iso=str(entry.get("target_publish_iso") or ""),
+        first_comment=first_comment,
+    )
+    mark_review_status(ep_id, "approved", {"approved_at_wib": datetime.now(WIB).isoformat(timespec="seconds")})
+    try:
+        from src.tools.weekly_growth_auditor import record_published_episode, mark_audience_request_fulfilled
+
+        record_published_episode(
+            episode_id=ep_id,
+            title=str(entry.get("topic_title") or ep_id),
+            discipline=str(entry.get("pillar") or "gadgets"),
+            section=str(entry.get("section_tag") or "EVERYDAY_TECH"),
+            youtube_url=str(entry.get("youtube_url") or ""),
+            gdrive_folder_url=str(entry.get("drive_url") or ""),
+            duration_sec=float(entry.get("duration_sec") or 0.0),
+            revisions_used=int(entry.get("revision_count") or 0),
+        )
+        if req_id and entry.get("youtube_url"):
+            mark_audience_request_fulfilled(req_id, ep_id, youtube_url=str(entry.get("youtube_url")))
+    except Exception:
+        pass
+
+    disable_audit_keyboard(entry.get("telegram_message_id"), "✅ Approved by Owner")
+    send_telegram_message(
+        f"✅ [{get_brand_name()}] Approved & Scheduled!\n"
+        f"• Title: {entry.get('topic_title')}\n"
+        f"• Target Publish: {entry.get('target_publish_iso')}\n"
+        f"• YouTube: {entry.get('youtube_url') or '-'}\n"
+        f"• API Status: {'OK' if pub_res.get('ok') else pub_res.get('error', 'Updated')}"
+    )
+    return {"approved": True, "episode_id": ep_id, "publish_result": pub_res}
+
+
+def handle_rerender_episode(episode_id: Optional[str] = None, feedback: str = "") -> dict[str, Any]:
+    """Delete old unlisted draft, save revision instructions, and re-produce same topic for the slot."""
+    load_dotenv()
+    entry = _resolve_target_episode(episode_id)
+    ep_id = str(entry["episode_id"])
+
+    clean_fb = feedback.strip()
+    if clean_fb:
+        try:
+            from src.tools.telegram_notify import record_owner_feedback
+
+            record_owner_feedback(clean_fb, mode="rerender")
+        except Exception:
+            pass
+
+    old_vid_id = str(entry.get("youtube_video_id") or "")
+    if old_vid_id:
+        delete_youtube_video(old_vid_id)
+
+    mark_review_status(ep_id, "superseded", {"revision_feedback": clean_fb})
+    disable_audit_keyboard(entry.get("telegram_message_id"), "🔄 Superseded by Revision")
+
+    new_rev = int(entry.get("revision_count") or 0) + 1
+    new_entry = run_one_automated_episode(
+        topic_hint=str(entry.get("topic_title") or "") or None,
+        slot_override=str(entry.get("slot") or "slot_2100"),
+        target_publish_iso_override=str(entry.get("target_publish_iso") or ""),
+        revision_count_override=new_rev,
+    )
+    return {"rerendered": True, "superseded_episode_id": ep_id, "new_entry": new_entry}
+
+
+def handle_reject_and_next_episode(episode_id: Optional[str] = None, reason: str = "owner_rejected") -> dict[str, Any]:
+    """Permanently block the rejected topic, delete unlisted YT draft, and generate a brand-new episode."""
+    load_dotenv()
+    entry = _resolve_target_episode(episode_id)
+    ep_id = str(entry["episode_id"])
+    title = str(entry.get("topic_title") or "")
+    slug = str(entry.get("topic_slug") or ep_id)
+
+    add_rejected_topic(BASE_DIR, title=title or ep_id, slug=slug, reason=reason)
+    old_vid_id = str(entry.get("youtube_video_id") or "")
+    if old_vid_id:
+        delete_youtube_video(old_vid_id)
+
+    mark_review_status(ep_id, "rejected", {"rejected_reason": reason})
+    disable_audit_keyboard(entry.get("telegram_message_id"), "❌ Rejected — Next Topic")
+    send_telegram_message(
+        f"❌ [{get_brand_name()}] Rejected '{title}'. Permanently blocked topic & starting fresh episode..."
+    )
+
+    new_entry = run_one_automated_episode(
+        slot_override=str(entry.get("slot") or "slot_2100"),
+        target_publish_iso_override=str(entry.get("target_publish_iso") or ""),
+        revision_count_override=0,
+        extra_avoid_titles=[title] if title else None,
+    )
+    return {"rejected_episode_id": ep_id, "new_entry": new_entry}
+
+
+def _run_daemon_loop() -> None:
     load_dotenv()
     default_slots = ",".join(get_daily_slots_wib())
     times_raw = os.environ.get("SCHEDULE_TIMES_WIB", default_slots)
@@ -427,6 +618,42 @@ def main() -> None:
             except Exception:
                 traceback.print_exc()
         time.sleep(20)
+
+
+def main() -> None:
+    load_dotenv()
+    parser = argparse.ArgumentParser(description="Bill_Explains Studio Scheduler & Dispatch Handlers")
+    sub = parser.add_subparsers(dest="cmd")
+
+    p_run = sub.add_parser("run")
+    p_run.add_argument("--slot", default=None)
+    p_run.add_argument("--topic-hint", default=None)
+
+    p_app = sub.add_parser("approve")
+    p_app.add_argument("--episode-id", default=None)
+
+    p_rev = sub.add_parser("rerender")
+    p_rev.add_argument("--episode-id", default=None)
+    p_rev.add_argument("--feedback", default="")
+
+    p_rej = sub.add_parser("reject-next")
+    p_rej.add_argument("--episode-id", default=None)
+    p_rej.add_argument("--reason", default="owner_rejected")
+
+    sub.add_parser("daemon")
+
+    args = parser.parse_args()
+    if args.cmd == "run":
+        out = run_one_automated_episode(topic_hint=args.topic_hint, slot_override=args.slot)
+        print(json.dumps(out or {}, ensure_ascii=False, indent=2))
+    elif args.cmd == "approve":
+        print(json.dumps(handle_approve_episode(args.episode_id), ensure_ascii=False, indent=2))
+    elif args.cmd == "rerender":
+        print(json.dumps(handle_rerender_episode(args.episode_id, args.feedback), ensure_ascii=False, indent=2))
+    elif args.cmd == "reject-next":
+        print(json.dumps(handle_reject_and_next_episode(args.episode_id, args.reason), ensure_ascii=False, indent=2))
+    else:
+        _run_daemon_loop()
 
 
 if __name__ == "__main__":

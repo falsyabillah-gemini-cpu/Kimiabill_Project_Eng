@@ -1,0 +1,157 @@
+name: Audit Reminder & AI Chief Editor Fallback
+
+on:
+  schedule:
+    # Slot 1 (21:00 WIB target): 20:30 WIB reminder (13:30 UTC), 20:45 WIB AI fallback (13:45 UTC)
+    - cron: "30 13 * * *"
+    - cron: "45 13 * * *"
+    # Slot 2 (04:00 WIB target, only when DAILY_VIDEO_COUNT == '2'): 22:00 WIB reminder (15:00 UTC), 22:30 WIB AI fallback (15:30 UTC)
+    - cron: "0 15 * * *"
+    - cron: "30 15 * * *"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Audit fallback action"
+        required: true
+        default: "fallback"
+        type: choice
+        options:
+          - remind
+          - fallback
+          - audit
+      slot:
+        description: "Target slot (slot_2100 or slot_0400)"
+        required: false
+        default: "slot_2100"
+        type: choice
+        options:
+          - slot_2100
+          - slot_0400
+      episode_id:
+        description: "Optional episode_id (required only for action=audit)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  audit-fallback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Determine Slot & Action
+        id: plan
+        env:
+          DAILY_COUNT: ${{ vars.DAILY_VIDEO_COUNT || '1' }}
+          AI_ENABLED: ${{ vars.ENABLE_AI_FALLBACK_AUDIT || 'true' }}
+        run: |
+          ACTION="${{ inputs.action || '' }}"
+          SLOT="${{ inputs.slot || 'slot_2100' }}"
+          SKIP="false"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            case "${{ github.event.schedule }}" in
+              "30 13 * * *") ACTION="remind"; SLOT="slot_2100" ;;
+              "45 13 * * *") ACTION="fallback"; SLOT="slot_2100" ;;
+              "0 15 * * *")
+                ACTION="remind"; SLOT="slot_0400"
+                [ "$DAILY_COUNT" != "2" ] && SKIP="true"
+                ;;
+              "30 15 * * *")
+                ACTION="fallback"; SLOT="slot_0400"
+                [ "$DAILY_COUNT" != "2" ] && SKIP="true"
+                ;;
+            esac
+          fi
+          if [ "$ACTION" = "fallback" ] && [ "$AI_ENABLED" != "true" ]; then
+            echo "ENABLE_AI_FALLBACK_AUDIT=$AI_ENABLED — skipping fallback."
+            SKIP="true"
+          fi
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
+          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        if: ${{ steps.plan.outputs.skip != 'true' }}
+
+      - name: Setup Python 3.12
+        if: ${{ steps.plan.outputs.skip != 'true' }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Lightweight Deps (Reminder)
+        if: ${{ steps.plan.outputs.skip != 'true' && steps.plan.outputs.action == 'remind' }}
+        run: pip install -q pydantic pyyaml requests python-dotenv
+
+      - name: Install FFmpeg & Full Dependencies (AI Fallback Audit)
+        if: ${{ steps.plan.outputs.skip != 'true' && steps.plan.outputs.action != 'remind' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-liberation
+          pip install -q -r requirements.txt
+
+      - name: Execute Audit Gate Reminder or AI Chief Editor
+        if: ${{ steps.plan.outputs.skip != 'true' }}
+        env:
+          PYTHONUNBUFFERED: "1"
+          GH_TOKEN: ${{ github.token }}
+          ENABLE_AI_FALLBACK_AUDIT: ${{ vars.ENABLE_AI_FALLBACK_AUDIT || 'true' }}
+          CHIEF_EDITOR_MODEL: ${{ vars.CHIEF_EDITOR_MODEL || 'gemini-3.8-flash' }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          COVERR_API_KEY: ${{ secrets.COVERR_API_KEY }}
+          UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          GDRIVE_WEBHOOK_URL: ${{ secrets.GDRIVE_WEBHOOK_URL }}
+          GDRIVE_WEBHOOK_TOKEN: ${{ secrets.GDRIVE_WEBHOOK_TOKEN }}
+          YOUTUBE_WEBHOOK_URL: ${{ secrets.YOUTUBE_WEBHOOK_URL }}
+          YOUTUBE_WEBHOOK_TOKEN: ${{ secrets.YOUTUBE_WEBHOOK_TOKEN }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALLOW_DIRECT_PUBLIC: "false"
+        run: |
+          if [ "${{ steps.plan.outputs.action }}" = "remind" ]; then
+            python -m src.chief_editor_audit remind --slot "${{ steps.plan.outputs.slot }}"
+          elif [ "${{ steps.plan.outputs.action }}" = "audit" ]; then
+            python -m src.chief_editor_audit audit --episode-id "${{ inputs.episode_id }}"
+          else
+            python -m src.chief_editor_audit fallback --slot "${{ steps.plan.outputs.slot }}"
+          fi
+
+      - name: Commit Audit Decisions & Updated History
+        if: ${{ steps.plan.outputs.skip != 'true' }}
+        run: |
+          git config user.name "Bill_Explains Studio Bot"
+          git config user.email "bot@studio.local"
+          for f in data/pending_review.json data/published_history.json data/rejected_topics.json data/memory.db data/owner_feedback.json data/audience_requests.json; do
+            [ -e "$f" ] && git add "$f" || true
+          done
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: AI Chief Editor audit gate update [skip ci]"
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME:-main}" || true
+            git push
+          fi
+
+      - name: Upload Revised Episode Artifact (If AI Requested Revise)
+        if: ${{ steps.plan.outputs.skip != 'true' && steps.plan.outputs.action != 'remind' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: studio-episode-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            episodes/*/FINAL_*.mp4
+            episodes/*/THUMBNAIL_*.jpg
+            episodes/*/*_contact_sheet.jpg
+            episodes/*/handoffs/*.json

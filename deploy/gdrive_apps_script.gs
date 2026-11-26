@@ -54,25 +54,62 @@ function _replyTg(botToken, chatId, replyText) {
   }
 }
 
+function _answerCallbackQuery(botToken, callbackQueryId, text) {
+  try {
+    UrlFetchApp.fetch("https://api.telegram.org/bot" + botToken + "/answerCallbackQuery", {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({ callback_query_id: String(callbackQueryId), text: String(text || "Processing...").slice(0, 180) }),
+      muteHttpExceptions: true,
+    });
+  } catch (e) {}
+}
+
+function _editInlineMarkup(botToken, chatId, messageId, keyboardRows) {
+  try {
+    UrlFetchApp.fetch("https://api.telegram.org/bot" + botToken + "/editMessageReplyMarkup", {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({
+        chat_id: String(chatId),
+        message_id: Number(messageId),
+        reply_markup: { inline_keyboard: keyboardRows || [] },
+      }),
+      muteHttpExceptions: true,
+    });
+  } catch (e) {}
+}
+
+function _fireGithubDispatch(githubRepo, githubPat, eventType, clientPayload) {
+  const resp = UrlFetchApp.fetch(
+    "https://api.github.com/repos/" + githubRepo + "/dispatches",
+    {
+      method: "post",
+      contentType: "application/json",
+      headers: {
+        Authorization: "Bearer " + githubPat,
+        Accept: "application/vnd.github+json",
+      },
+      payload: JSON.stringify({
+        event_type: eventType,
+        client_payload: clientPayload || {},
+      }),
+      muteHttpExceptions: true,
+    }
+  );
+  return resp.getResponseCode();
+}
+
 function _processTelegramUpdate(payload) {
   const props = PropertiesService.getScriptProperties();
   const botToken = String(props.getProperty("TELEGRAM_BOT_TOKEN") || "").trim();
   const allowedChatId = String(props.getProperty("TELEGRAM_CHAT_ID") || "").trim();
   const githubPat = String(props.getProperty("GITHUB_PAT") || "").trim();
   const githubRepo = String(props.getProperty("GITHUB_REPO") || DEFAULT_GITHUB_REPO).trim();
-  const botName = String(props.getProperty("BOT_NAME") || "Everyday Sci-Tech Studio").trim();
-
-  const msg = payload.message || payload.edited_message || {};
-  const chatId = msg.chat && msg.chat.id !== undefined ? String(msg.chat.id) : "";
-  const text = String(msg.text || msg.caption || "").trim();
+  const botName = String(props.getProperty("BOT_NAME") || "Bill_Explains").trim();
 
   if (!botToken || !allowedChatId) {
-    console.log("[tg_webhook] ignored: Script Properties incomplete (botTokenSet=" + Boolean(botToken) + ", allowedChatIdSet=" + Boolean(allowedChatId) + ")");
     return { ok: true, ignored: true, reason: "missing_script_properties" };
-  }
-  if (chatId !== allowedChatId || !text) {
-    console.log("[tg_webhook] ignored: chatId mismatch or empty text (incoming=" + chatId + ", expected=" + allowedChatId + ")");
-    return { ok: true, ignored: true, reason: "chat_mismatch_or_empty" };
   }
 
   if (payload.update_id && typeof CacheService !== "undefined") {
@@ -84,70 +121,163 @@ function _processTelegramUpdate(payload) {
     cache.put(dedupeKey, "1", 600);
   }
 
+  // Handle Inline Keyboard Button Callbacks (Approve / Revise / Reject / AI Audit)
+  if (payload.callback_query) {
+    const cq = payload.callback_query;
+    const cqId = String(cq.id || "");
+    const cqMsg = cq.message || {};
+    const cqChatId = cqMsg.chat && cqMsg.chat.id !== undefined ? String(cqMsg.chat.id) : "";
+    const cqMsgId = cqMsg.message_id;
+    const data = String(cq.data || "").trim();
+
+    if (cqChatId !== allowedChatId) {
+      _answerCallbackQuery(botToken, cqId, "Unauthorized chat");
+      return { ok: true, ignored: true };
+    }
+    if (!githubPat) {
+      _answerCallbackQuery(botToken, cqId, "GITHUB_PAT not configured");
+      return { ok: true, error: "GITHUB_PAT missing" };
+    }
+
+    const parts = data.split(":");
+    const cmd = parts[0] || "";
+    const epId = parts.slice(1).join(":");
+
+    if (cmd === "revise" && epId) {
+      _answerCallbackQuery(botToken, cqId, "Select what to fix:");
+      _editInlineMarkup(botToken, cqChatId, cqMsgId, [
+        [
+          { text: "🎥 Fix B-Roll", callback_data: "revise_broll:" + epId },
+          { text: "📊 Fix Diagrams", callback_data: "revise_diagrams:" + epId },
+        ],
+        [
+          { text: "🎙️ Fix Script/Audio", callback_data: "revise_script:" + epId },
+          { text: "❌ Cancel Revise", callback_data: "restore_btns:" + epId },
+        ],
+      ]);
+      _replyTg(botToken, allowedChatId, "✏️ Quick button tapped for `" + epId + "`, OR send `/rerender " + epId + " <custom instructions>` anytime.");
+      return { ok: true };
+    }
+
+    if (cmd === "restore_btns" && epId) {
+      _answerCallbackQuery(botToken, cqId, "Restored options");
+      _editInlineMarkup(botToken, cqChatId, cqMsgId, [
+        [
+          { text: "✅ Approve & Schedule", callback_data: "approve:" + epId },
+          { text: "🔄 Revise Video", callback_data: "revise:" + epId },
+        ],
+        [
+          { text: "❌ Reject & Next Topic", callback_data: "reject:" + epId },
+          { text: "🤖 Delegate to AI", callback_data: "ai_audit:" + epId },
+        ],
+      ]);
+      return { ok: true };
+    }
+
+    let eventType = "";
+    let dispatchPayload = { episode_id: epId };
+    let statusBtnText = "⏳ Dispatched...";
+    let replyMsg = "";
+
+    if (cmd === "approve" && epId) {
+      eventType = "telegram_approve";
+      statusBtnText = "✅ Approved — Scheduling...";
+      replyMsg = "✅ Approved `" + epId + "`! Transitioning privacy/publishAt on YouTube...";
+    } else if ((cmd === "revise_broll" || cmd === "revise_diagrams" || cmd === "revise_script") && epId) {
+      eventType = "telegram_rerender";
+      const fbMap = {
+        revise_broll: "Owner requested B-roll replacement for mismatched/weak visual shots.",
+        revise_diagrams: "Owner requested mechanistic diagram fixes (accuracy, variety, clarity).",
+        revise_script: "Owner requested tighter script/audio pacing & pronunciation cleanup.",
+      };
+      dispatchPayload = { episode_id: epId, feedback: fbMap[cmd], text: fbMap[cmd], mode: "rerender" };
+      statusBtnText = "🔄 Revising Video...";
+      replyMsg = "🔄 Revising `" + epId + "`: " + fbMap[cmd];
+    } else if (cmd === "reject" && epId) {
+      eventType = "telegram_reject_next";
+      statusBtnText = "❌ Rejected — Generating Next Topic...";
+      replyMsg = "❌ Rejected `" + epId + "`. Blacklisting topic, deleting draft, and generating next topic...";
+    } else if (cmd === "ai_audit" && epId) {
+      eventType = "telegram_ai_audit";
+      statusBtnText = "🤖 AI Chief Editor Auditing...";
+      replyMsg = "🤖 Delegated `" + epId + "` to AI Chief Editor multimodal MP4 audit...";
+    } else {
+      _answerCallbackQuery(botToken, cqId, "Done");
+      return { ok: true };
+    }
+
+    _answerCallbackQuery(botToken, cqId, statusBtnText);
+    _editInlineMarkup(botToken, cqChatId, cqMsgId, [[{ text: statusBtnText, callback_data: "noop" }]]);
+    const code = _fireGithubDispatch(githubRepo, githubPat, eventType, dispatchPayload);
+    if (code >= 200 && code < 300) {
+      _replyTg(botToken, allowedChatId, replyMsg);
+    } else {
+      _replyTg(botToken, allowedChatId, "⚠️ Dispatch `" + eventType + "` failed (HTTP " + code + ").");
+    }
+    return { ok: code >= 200 && code < 300, status: code };
+  }
+
+  const msg = payload.message || payload.edited_message || {};
+  const chatId = msg.chat && msg.chat.id !== undefined ? String(msg.chat.id) : "";
+  const text = String(msg.text || msg.caption || "").trim();
+
+  if (chatId !== allowedChatId || !text) {
+    return { ok: true, ignored: true, reason: "chat_mismatch_or_empty" };
+  }
+
   const low = text.toLowerCase();
   if (low === "/start" || low === "/help") {
     _replyTg(
       botToken,
       allowedChatId,
-      "🤖 " + botName + " Bot Active (Pattern B — Direct to All Agents).\n" +
-      "• Send any message = auto-compiled to Agents 1, 2, 3, 5, 6, 7, 8 & Engine for NEXT VIDEOS.\n" +
-      "• Send `/rerender <notes>` = immediately produce & re-render a replacement video now!\n" +
-      "• Send `/rules` = check active overrides | `/clear_rules` = reset extra overrides."
+      "🤖 " + botName + " Studio v2 Bot Active.\n" +
+      "• Drafts upload as Unlisted first with 4 inline audit buttons (Approve, Revise, Reject & Next, AI Audit).\n" +
+      "• Send `/rerender <episode_id optional> <notes>` = immediately re-render replacement.\n" +
+      "• Send `/rules` = active overrides | `/clear_rules` = reset extra rules."
     );
     return { ok: true };
   }
 
   if (!githubPat) {
-    _replyTg(
-      botToken,
-      allowedChatId,
-      "⚠️ Feedback received, but GITHUB_PAT is not set in Apps Script Properties. Without GITHUB_PAT, feedback will be pulled on the next scheduled run."
-    );
+    _replyTg(botToken, allowedChatId, "⚠️ Message received, but GITHUB_PAT missing in Apps Script Properties.");
     return { ok: true, warning: "GITHUB_PAT missing" };
   }
 
   const isRulesCmd = low.indexOf("/rules") === 0 || low === "/aturan";
   const isClearCmd = low.indexOf("/clear_rules") === 0 || low.indexOf("/clear") === 0;
   const isRerender = low.indexOf("/rerender") === 0;
-  const cleanNote = isRerender
+  let cleanNote = isRerender
     ? text.slice(9).trim()
     : (isRulesCmd || isClearCmd ? text : (low.indexOf("/feedback") === 0 ? text.slice(9).trim() : text));
 
-  const eventType = isRerender ? "telegram_rerender" : "telegram_feedback";
-  const dispatchResp = UrlFetchApp.fetch(
-    "https://api.github.com/repos/" + githubRepo + "/dispatches",
-    {
-      method: "post",
-      contentType: "application/json",
-      headers: {
-        Authorization: "Bearer " + githubPat,
-        Accept: "application/vnd.github+json",
-      },
-      payload: JSON.stringify({
-        event_type: eventType,
-        client_payload: {
-          text: cleanNote,
-          feedback: cleanNote,
-          mode: isRerender ? "rerender" : "next_video",
-        },
-      }),
-      muteHttpExceptions: true,
+  let epOverride = "";
+  if (isRerender && cleanNote) {
+    const mEp = cleanNote.match(/^(ep_[A-Za-z0-9_]+)\s*(.*)$/);
+    if (mEp) {
+      epOverride = mEp[1];
+      cleanNote = (mEp[2] || "").trim();
     }
-  );
-  const code = dispatchResp.getResponseCode();
-  console.log("[tg_webhook] GitHub dispatch HTTP " + code);
+  }
+
+  const eventType = isRerender ? "telegram_rerender" : "telegram_feedback";
+  const code = _fireGithubDispatch(githubRepo, githubPat, eventType, {
+    episode_id: epOverride,
+    text: cleanNote,
+    feedback: cleanNote,
+    mode: isRerender ? "rerender" : "next_video",
+  });
   if (code >= 200 && code < 300) {
     if (isRulesCmd) {
-      _replyTg(botToken, allowedChatId, "🔎 Checking active rules across all Agents (~10s)...");
+      _replyTg(botToken, allowedChatId, "🔎 Checking active rules (~10s)...");
     } else if (isClearCmd) {
-      _replyTg(botToken, allowedChatId, "🧹 Sending reset rules command to all Agents...");
+      _replyTg(botToken, allowedChatId, "🧹 Sending reset rules command...");
     } else {
       _replyTg(
         botToken,
         allowedChatId,
         isRerender
-          ? "🔄 On it! Starting full replacement video production with notes:\n" + (cleanNote || "(no extra notes)")
-          : "⏳ Feedback received! Compiling automatically into Agents 1, 2, 3, 5, 6, 7, 8 + Engine (~10s)..."
+          ? "🔄 Starting re-render (" + (epOverride || "latest draft") + ") with notes:\n" + (cleanNote || "(default refinement)")
+          : "⏳ Feedback received! Compiling into Agents 1-8 (~10s)..."
       );
     }
   } else {
@@ -166,35 +296,15 @@ function testTelegramBot() {
   const botToken = String(props.getProperty("TELEGRAM_BOT_TOKEN") || "").trim();
   const allowedChatId = String(props.getProperty("TELEGRAM_CHAT_ID") || "").trim();
   const githubPat = String(props.getProperty("GITHUB_PAT") || "").trim();
-  console.log("Script Properties -> botTokenLen=" + botToken.length + ", chatId=" + allowedChatId + ", githubPatSet=" + Boolean(githubPat));
   if (!botToken || !allowedChatId) {
     throw new Error("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing in Script Properties.");
   }
-
   const infoResp = UrlFetchApp.fetch("https://api.telegram.org/bot" + botToken + "/getWebhookInfo", { muteHttpExceptions: true });
-  const infoText = infoResp.getContentText();
-  console.log("getWebhookInfo -> " + infoText);
-
-  let webhookSummary = "";
-  try {
-    const parsed = JSON.parse(infoText);
-    const res = parsed.result || {};
-    webhookSummary =
-      "\n• Webhook URL: " + (res.url || "(empty / polling mode)") +
-      "\n• Pending updates: " + (res.pending_update_count || 0) +
-      "\n• Last error: " + (res.last_error_message || "(none)");
-  } catch (e) {
-    webhookSummary = "\n• Webhook info: " + infoText.slice(0, 150);
-  }
-
-  const sendRes = _replyTg(
+  _replyTg(
     botToken,
     allowedChatId,
-    "🧪 Direct test from Google Apps Script succeeded!" +
-      webhookSummary +
-      "\n\nIf Last error mentions '302', run enableTelegramPollingMode in Apps Script editor."
+    "🧪 Apps Script v2 Telegram Bridge test OK! (githubPatSet=" + Boolean(githubPat) + ")\n" + infoResp.getContentText().slice(0, 220)
   );
-  console.log("sendMessage result -> " + JSON.stringify(sendRes));
 }
 
 function pollTelegram() {
@@ -206,8 +316,9 @@ function pollTelegram() {
   if (!lock.tryLock(5000)) return;
   try {
     let offset = Number(props.getProperty("TG_OFFSET") || "0");
+    const allowed = encodeURIComponent(JSON.stringify(["message", "edited_message", "callback_query"]));
     const resp = UrlFetchApp.fetch(
-      "https://api.telegram.org/bot" + botToken + "/getUpdates?offset=" + offset + "&timeout=0&allowed_updates=%5B%22message%22%2C%22edited_message%22%5D",
+      "https://api.telegram.org/bot" + botToken + "/getUpdates?offset=" + offset + "&timeout=0&allowed_updates=" + allowed,
       { method: "get", muteHttpExceptions: true }
     );
     const data = JSON.parse(resp.getContentText() || "{}");
@@ -230,9 +341,6 @@ function pollTelegram() {
   }
 }
 
-/**
- * 100% HTTP 302-proof alternative: delete webhook and poll Telegram every 1 minute via Apps Script trigger.
- */
 function enableTelegramPollingMode() {
   const props = PropertiesService.getScriptProperties();
   const botToken = String(props.getProperty("TELEGRAM_BOT_TOKEN") || "").trim();
@@ -240,28 +348,20 @@ function enableTelegramPollingMode() {
   if (!botToken || !allowedChatId) {
     throw new Error("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing in Script Properties.");
   }
-
-  const delResp = UrlFetchApp.fetch(
-    "https://api.telegram.org/bot" + botToken + "/deleteWebhook?drop_pending_updates=false",
-    { method: "get", muteHttpExceptions: true }
-  );
-  console.log("deleteWebhook -> " + delResp.getContentText());
-
+  UrlFetchApp.fetch("https://api.telegram.org/bot" + botToken + "/deleteWebhook?drop_pending_updates=false", { method: "get", muteHttpExceptions: true });
   ScriptApp.getProjectTriggers().forEach(function (tr) {
-    if (tr.getHandlerFunction() === "pollTelegram") {
-      ScriptApp.deleteTrigger(tr);
-    }
+    if (tr.getHandlerFunction() === "pollTelegram") ScriptApp.deleteTrigger(tr);
   });
   ScriptApp.newTrigger("pollTelegram").timeBased().everyMinutes(1).create();
   pollTelegram();
-  _replyTg(botToken, allowedChatId, "✅ 1-minute Apps Script Polling Mode active! Bot is now immune to 302 redirects — send /start, /rules, or any feedback anytime.");
+  _replyTg(botToken, allowedChatId, "✅ 1-minute Apps Script Polling Mode (with inline buttons) active!");
 }
 
 function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents || "{}");
 
-    if (payload.update_id && (payload.message || payload.edited_message)) {
+    if (payload.update_id && (payload.message || payload.edited_message || payload.callback_query)) {
       return _handleTelegramWebhook(payload);
     }
 
@@ -496,6 +596,49 @@ function doPost(e) {
         : DriveApp.getFileById(thumbFid).getBlob();
       YouTube.Thumbnails.set(vidId, thumbBlob);
       return _jsonResponse({ ok: true, thumbnail_set: true, video_id: vidId });
+    }
+
+    if (action === "set_youtube_privacy") {
+      if (typeof YouTube === "undefined") {
+        return _jsonResponse({ ok: false, error: "YouTube service not enabled" });
+      }
+      const vidId = String(payload.video_id || "").trim();
+      const priv = String(payload.privacy || "public").trim().toLowerCase();
+      const publishAt = String(payload.publish_at || "").trim();
+      if (!vidId) {
+        return _jsonResponse({ ok: false, error: "video_id is required" });
+      }
+      const stObj = {
+        privacyStatus: priv === "private" ? "private" : (priv === "unlisted" ? "unlisted" : "public"),
+        selfDeclaredMadeForKids: false,
+      };
+      if (stObj.privacyStatus === "private" && publishAt) {
+        stObj.publishAt = publishAt;
+      }
+      YouTube.Videos.update({ id: vidId, status: stObj }, "status");
+      if (payload.first_comment && (stObj.privacyStatus === "public" || publishAt)) {
+        try {
+          YouTube.CommentThreads.insert({
+            snippet: {
+              videoId: vidId,
+              topLevelComment: { snippet: { textOriginal: String(payload.first_comment).slice(0, 800) } },
+            },
+          }, "snippet");
+        } catch (cErr) {}
+      }
+      return _jsonResponse({ ok: true, video_id: vidId, privacy: stObj.privacyStatus, publish_at: publishAt || null });
+    }
+
+    if (action === "delete_youtube_video") {
+      if (typeof YouTube === "undefined") {
+        return _jsonResponse({ ok: false, error: "YouTube service not enabled" });
+      }
+      const vidId = String(payload.video_id || "").trim();
+      if (!vidId) {
+        return _jsonResponse({ ok: false, error: "video_id is required" });
+      }
+      YouTube.Videos.remove(vidId);
+      return _jsonResponse({ ok: true, deleted: vidId });
     }
 
     if (action === "get_youtube_stats") {

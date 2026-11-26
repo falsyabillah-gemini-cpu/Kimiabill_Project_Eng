@@ -222,6 +222,80 @@ def fetch_viral_scitech_candidates(
     return collected[:max_items]
 
 
+def _norm_topic_key(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def get_blocked_topic_sets(base_dir: Path) -> tuple[list[str], set[str], set[str]]:
+    """Collect all previously published, produced, or permanently rejected titles & slugs."""
+    titles: list[str] = []
+    titles_lower: set[str] = set()
+    slugs: set[str] = set()
+
+    def _add(t: str, s: str = "") -> None:
+        clean_t = " ".join((t or "").strip().split())
+        nt = _norm_topic_key(clean_t)
+        if clean_t and nt and nt not in titles_lower:
+            titles.append(clean_t)
+            titles_lower.add(nt)
+        if s:
+            slugs.add(s.strip().lower())
+
+    memory = StudioMemory(base_dir)
+    for p in memory.list_past_topics(limit=120):
+        _add(p.get("title", ""), p.get("slug", ""))
+
+    hist_p = base_dir / "data" / "published_history.json"
+    if hist_p.exists():
+        try:
+            for row in __import__("json").loads(hist_p.read_text(encoding="utf-8")):
+                if isinstance(row, dict):
+                    _add(row.get("title", ""), row.get("episode_slug", ""))
+        except Exception:
+            pass
+
+    rej_p = base_dir / "data" / "rejected_topics.json"
+    if rej_p.exists():
+        try:
+            for row in __import__("json").loads(rej_p.read_text(encoding="utf-8")):
+                if isinstance(row, dict):
+                    _add(row.get("title", ""), row.get("slug", ""))
+                elif isinstance(row, str):
+                    _add(row)
+        except Exception:
+            pass
+
+    return titles, titles_lower, slugs
+
+
+def add_rejected_topic(base_dir: Path, title: str, slug: str = "", reason: str = "") -> None:
+    """Persist a rejected topic permanently into data/rejected_topics.json."""
+    import json
+
+    rej_p = base_dir / "data" / "rejected_topics.json"
+    rej_p.parent.mkdir(parents=True, exist_ok=True)
+    items: list[dict[str, Any]] = []
+    if rej_p.exists():
+        try:
+            raw = json.loads(rej_p.read_text(encoding="utf-8"))
+            if isinstance(raw, list):
+                items = [x for x in raw if isinstance(x, dict)]
+        except Exception:
+            items = []
+
+    norm = _norm_topic_key(title)
+    if norm and not any(_norm_topic_key(str(x.get("title") or "")) == norm for x in items):
+        items.append(
+            {
+                "title": title.strip(),
+                "slug": (slug or "").strip().lower(),
+                "reason": (reason or "rejected").strip()[:160],
+                "rejected_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }
+        )
+        rej_p.write_text(json.dumps(items[-500:], ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def build_agent1_input_brief(
     base_dir: Path,
     lookback_hours: int = 72,
@@ -230,16 +304,19 @@ def build_agent1_input_brief(
 ) -> dict[str, Any]:
     """Assemble compact context for Agent 1: viral everyday sci-tech trends + balanced fallback ideas."""
     memory = StudioMemory(base_dir)
-    past_topics = memory.list_past_topics(limit=35)
-    past_titles_lower = {p["title"].lower() for p in past_topics}
-    past_slugs = {p["slug"] for p in past_topics}
+    blocked_titles, blocked_norm, blocked_slugs = get_blocked_topic_sets(base_dir)
 
-    raw_viral = fetch_viral_scitech_candidates(lookback_hours=lookback_hours, max_items=10)
+    raw_viral = fetch_viral_scitech_candidates(lookback_hours=lookback_hours, max_items=12)
     viral_filtered = [
-        v for v in raw_viral if v["title"].lower() not in past_titles_lower
+        v for v in raw_viral
+        if _norm_topic_key(v["title"]) not in blocked_norm
     ]
 
-    fallback_ideas = memory.get_balanced_unused_ideas(count=5)
+    raw_fallback = memory.get_balanced_unused_ideas(count=10)
+    fallback_ideas = [
+        fb for fb in raw_fallback
+        if _norm_topic_key(fb.get("title", "")) not in blocked_norm
+    ][:5]
     discipline_balance = memory.discipline_counts()
 
     use_viral = len(viral_filtered) >= min_viral_matches or (is_tech_radar and len(viral_filtered) >= 1)
@@ -250,6 +327,6 @@ def build_agent1_input_brief(
         "idea_bank_fallback_candidates": fallback_ideas,
         "discipline_balance_counts": discipline_balance,
         "global_viral_style_benchmarks": GLOBAL_VIRAL_STYLE_BENCHMARKS,
-        "already_covered_titles": [p["title"] for p in past_topics[:20]],
-        "already_covered_slugs": list(past_slugs)[:20],
+        "already_covered_titles": blocked_titles[:60],
+        "already_covered_slugs": sorted(blocked_slugs)[:60],
     }

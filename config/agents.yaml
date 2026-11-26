@@ -31,10 +31,13 @@ agents:
     recommended_prod_provider: "gemini_api"
     recommended_prod_model: "gemini-3.5-flash-lite"
     footage_sources:
-      - "pexels"
       - "pixabay"
-      - "wikimedia"
+      - "coverr"
       - "nasa"
+      - "unsplash"
+      - "openverse"
+      - "wikimedia"
+      - "ai_scene"
 
   agent_4_video_executor:
     role: "Video Director, Mechanistic Animator & FFmpeg Renderer"

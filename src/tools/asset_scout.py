@@ -1,109 +1,74 @@
-"""Agent 6 Tool: Real Science Video Footage & SFX Scout.
+"""Agent 6 Tool: Resilient 3-Tier Visual Waterfall + 1-Call Contact-Sheet Vision QA.
 
-Sources real-world video clips (strictly avoiding animations/cartoons/lectures):
-1. Pexels Video API (automatically enabled if PEXELS_API_KEY env var is set)
-2. Pixabay Video API (automatically enabled if PIXABAY_API_KEY env var is set; free & active)
-3. Wikimedia Commons API (free, no API key needed; CC0/CC-BY real science & kitchen videos)
-4. NASA Images & Video API (free, no API key needed; Public Domain physics/earth/science HD clips)
+Eliminates Pexels free-tier dependency & footage-induced build failures:
+  Tier 1 (Real Stock Video):
+    1. PIXABAY_API_KEY (primary, with 24h local query cache per Pixabay ToS)
+    2. COVERR_API_KEY (secondary curated B-roll; gracefully skipped if unset)
+    3. Keyless NASA Image & Video Library (prioritized for physics/optics/energy/materials/space)
+    4. PEXELS_API_KEY (strictly optional; auto-disabled on 401/403/429 or unset)
+    5. Wikimedia Commons (strict last resort: blocks lecture/presentation/slide/intro/logo/university/seminar/arduino/demo or >3m, trims 2.0s ends)
+  Tier 2 (High-Res Portrait Photo + Anti-Jitter FFmpeg Ken Burns):
+    1. UNSPLASH_ACCESS_KEY (portrait + links.download_location guideline ping)
+    2. PIXABAY_API_KEY photo (vertical photo with 24h cache)
+    3. Keyless Openverse CC0/PDM images
+  Tier 3 (AI-Generated 9:16 Scene + Ken Burns):
+    - Gemini Imagen / Flash Image / Cloudflare Workers AI (zero text/watermark/logo)
+    - Zero Hard-Crash Policy: deterministic photoreal backdrop Ken Burns only if all image APIs fail/429.
 
-Reuses local SFX cache via StudioMemory so basic SFX are never re-fetched.
+Validates ALL candidate shots in ONE single Vision API Contact-Sheet call:
+  - Shot #1 (Hook 0-3s): strict >= 7.5/10
+  - Shot #2..N: calibrated >= 6.0/10 (still blocking watermarks, foreign slides, off-topic scenes)
 """
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
 import socket
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
 import requests
 import urllib3.util.connection as _urllib3_conn
+from PIL import Image, ImageDraw, ImageFont
+from pydantic import BaseModel, Field
 
-from src.brand_config import get_brand_name, get_gdrive_root
+from src.brand_config import BASE_DIR, get_brand_name, get_gdrive_root
 from src.memory import StudioMemory
 from src.state import Agent6Output, SceneAsset, SceneSpec
 
-# Prefer IPv4 to avoid transient IPv6 routing failures on container hosts
 _urllib3_conn.allowed_gai_family = lambda: socket.AF_INET
 
-USER_AGENT = f"{get_brand_name()}Studio/1.0 (everyday-scitech-bot)"
+USER_AGENT = f"{get_brand_name()}Studio/2.0 (everyday-scitech-bot)"
+CACHE_PATH = BASE_DIR / "data" / "media_search_cache.json"
+CACHE_TTL_SEC = 24 * 3600
 
-DISALLOWED_TITLE_TOKENS = (
-    "animation",
-    "animated",
-    "cartoon",
-    "3d",
-    "blender",
-    "simulation",
-    "simulated",
-    "diagram",
-    "lecture",
-    "presentation",
-    "interview",
-    "talk",
-    "podcast",
-    "webinar",
-    "slideshow",
-    "trailer",
-    "logo",
-    "intro",
-    "music video",
-    "album",
-    "karaoke",
-    "gameplay",
-    "screen recording",
-    "screencast",
-    "wikipedia",
-    "wp25",
-    "wikimedia",
-    "wikimania",
-    "anthem",
-    "caption",
-    "billboard",
-    "commercial",
-    "promo",
-    "donation",
-    "scp-",
-    "tutorial",
-    "ukulele",
-    "guitar",
-    "horseback",
-    "flamingo",
-    "cctv",
-    "wallet theft",
-    "brush pack",
-    "painter",
-    "hubblecast",
-    "esocast",
-    "sora in action",
-    "graduation",
-    "from farm to plate",
-    "recipe",
-    "street light",
-    "full moon",
-    "carpentry",
-    "woodworking",
-    "screw pump",
-    "grouted connection",
-    "primordial germ cells",
-    "astronaut moments",
-    "nogizaka",
+_PEXELS_DISABLED_THIS_RUN = False
+
+DISALLOWED_TITLE_TOKENS: tuple[str, ...] = (
+    "animation", "animated", "cartoon", "3d render", "blender", "simulation", "simulated",
+    "diagram", "lecture", "presentation", "interview", "talk", "podcast", "webinar",
+    "slideshow", "trailer", "logo", "intro", "outro", "music video", "album", "karaoke",
+    "gameplay", "screen recording", "screencast", "wikipedia", "wp25", "wikimedia",
+    "wikimania", "anthem", "caption", "billboard", "commercial", "promo", "donation",
+    "scp-", "tutorial", "university", "seminar", "arduino", "demo", "conference",
+    "slide", "powerpoint", "ukulele", "guitar", "horseback", "flamingo", "cctv",
+    "wallet theft", "hubblecast", "esocast", "graduation", "recipe",
 )
 
-# Family-safety blocklist (checked against title + categories + description metadata)
-UNSAFE_TOKENS = (
+UNSAFE_TOKENS: tuple[str, ...] = (
     "nude", "nudity", "naked", "topless", "nsfw", "porn", "erotic", "sex", "sexual",
     "genital", "penis", "vagina", "breast", "nipple", "masturbat", "orgasm", "fetish",
     "bdsm", "bondage", "lingerie", "bikini", "stripper", "striptease", "intercourse",
     "condom", "explicit", "adult film", "xxx", "gore", "corpse", "dead body", "autopsy",
     "beheading", "execution", "suicide", "murder", "shoot", "shooting", "knife-wielding",
-    "suspect", "gun", "weapon", "war crime",
-    "drug use", "injecting", "surgery", "pregnan", "childbirth",
-    "dancing", "pole dance", "fashion show", "model posing",
+    "suspect", "gun", "weapon", "war crime", "drug use", "injecting", "surgery",
+    "pregnan", "childbirth", "dancing", "pole dance", "fashion show", "model posing",
 )
 
 
@@ -111,6 +76,18 @@ def _is_family_safe_text(*texts: str) -> bool:
     blob = " ".join(t for t in texts if t).lower()
     blob = re.sub(r"<[^>]+>", " ", blob)
     return not any(tok in blob for tok in UNSAFE_TOKENS)
+
+
+def _is_clean_real_title(title: str, extra_negative: Optional[list[str]] = None) -> bool:
+    low = (title or "").lower()
+    if any(tok in low for tok in DISALLOWED_TITLE_TOKENS):
+        return False
+    if extra_negative:
+        for neg in extra_negative:
+            n_clean = (neg or "").strip().lower()
+            if len(n_clean) >= 3 and n_clean in low:
+                return False
+    return True
 
 
 @dataclass
@@ -123,7 +100,10 @@ class VideoCandidate:
     duration_sec: float
     width: int
     height: int
+    tier: str = "tier_1_video"  # tier_1_video | tier_2_photo_ken_burns | tier_3_ai_scene_ken_burns
     thumb_url: Optional[str] = None
+    unsplash_download_location: Optional[str] = None
+    needs_trim_ends: bool = False
 
 
 def probe_video(path: Path) -> Optional[dict]:
@@ -160,83 +140,90 @@ def probe_video(path: Path) -> Optional[dict]:
         return None
 
 
-def _is_real_video_title(title: str) -> bool:
-    low = title.lower()
-    return not any(tok in low for tok in DISALLOWED_TITLE_TOKENS)
+# === 24-Hour Local Search Cache (Pixabay / Openverse Compliance & Speed) ===
+
+def _load_cache() -> dict[str, Any]:
+    if not CACHE_PATH.exists():
+        return {}
+    try:
+        raw = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else {}
+    except Exception:
+        return {}
 
 
-def search_pexels(query: str, per_page: int = 8, orientation: Optional[str] = "portrait") -> list[VideoCandidate]:
-    api_key = os.environ.get("PEXELS_API_KEY")
-    if not api_key:
-        return []
-    params: dict[str, Any] = {"query": query, "per_page": per_page}
-    if orientation:
-        params["orientation"] = orientation
-    resp = requests.get(
-        "https://api.pexels.com/videos/search",
-        headers={"Authorization": api_key, "User-Agent": USER_AGENT},
-        params=params,
-        timeout=20,
-    )
-    if resp.status_code != 200:
-        return []
-    out: list[VideoCandidate] = []
-    for v in resp.json().get("videos", []):
-        dur = float(v.get("duration", 0))
-        if dur < 3.0:
-            continue
-        files = sorted(
-            [f for f in v.get("video_files", []) if f.get("file_type") == "video/mp4"],
-            key=lambda f: abs((f.get("height") or 0) - 1080),
-        )
-        if not files:
-            continue
-        best = files[0]
-        out.append(
-            VideoCandidate(
-                source="pexels",
-                title=f"Pexels #{v.get('id')} - {query}",
-                download_url=best["link"],
-                page_url=v.get("url", best["link"]),
-                license="Pexels License (Free)",
-                duration_sec=dur,
-                width=int(best.get("width") or 720),
-                height=int(best.get("height") or 1280),
-                thumb_url=v.get("image"),
-            )
-        )
-    return out
+def _save_cache(cache: dict[str, Any]) -> None:
+    try:
+        now = time.time()
+        pruned = {
+            k: v for k, v in cache.items()
+            if isinstance(v, dict) and (now - float(v.get("ts", 0))) < CACHE_TTL_SEC
+        }
+        if len(pruned) > 250:
+            items = sorted(pruned.items(), key=lambda kv: kv[1].get("ts", 0), reverse=True)[:250]
+            pruned = dict(items)
+        CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CACHE_PATH.write_text(json.dumps(pruned, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
 
+
+def _cache_get(namespace: str, query: str) -> Optional[list[dict[str, Any]]]:
+    key = hashlib.sha256(f"{namespace}:{query.strip().lower()}".encode("utf-8")).hexdigest()[:24]
+    entry = _load_cache().get(key)
+    if not isinstance(entry, dict):
+        return None
+    if (time.time() - float(entry.get("ts", 0))) > CACHE_TTL_SEC:
+        return None
+    return entry.get("items")
+
+
+def _cache_set(namespace: str, query: str, items: list[dict[str, Any]]) -> None:
+    key = hashlib.sha256(f"{namespace}:{query.strip().lower()}".encode("utf-8")).hexdigest()[:24]
+    cache = _load_cache()
+    cache[key] = {"ts": time.time(), "items": items}
+    _save_cache(cache)
+
+
+# === TIER 1: Real Stock Video Providers (No Pexels Dependency) ===
 
 def search_pixabay(query: str, per_page: int = 8) -> list[VideoCandidate]:
-    """Search Pixabay Video API when PIXABAY_API_KEY is configured."""
-    api_key = os.environ.get("PIXABAY_API_KEY")
+    """Primary Tier 1: Pixabay Video API with 24h local cache (per Pixabay ToS)."""
+    api_key = os.environ.get("PIXABAY_API_KEY", "").strip()
     if not api_key:
         return []
-    try:
-        resp = requests.get(
-            "https://pixabay.com/api/videos/",
-            headers={"User-Agent": USER_AGENT},
-            params={
-                "key": api_key,
-                "q": query,
-                "per_page": per_page,
-                "safesearch": "true",
-                "video_type": "film",
-            },
-            timeout=20,
-        )
-    except requests.RequestException:
-        return []
-    if resp.status_code != 200:
-        return []
+    cached = _cache_get("pixabay_video", query)
+    hits: list[dict[str, Any]]
+    if cached is not None:
+        hits = cached
+    else:
+        try:
+            resp = requests.get(
+                "https://pixabay.com/api/videos/",
+                headers={"User-Agent": USER_AGENT},
+                params={
+                    "key": api_key,
+                    "q": query,
+                    "per_page": per_page,
+                    "safesearch": "true",
+                    "video_type": "film",
+                },
+                timeout=18,
+            )
+            if resp.status_code != 200:
+                return []
+            hits = resp.json().get("hits", [])
+            _cache_set("pixabay_video", query, hits)
+        except requests.RequestException:
+            return []
+
     out: list[VideoCandidate] = []
-    for v in resp.json().get("hits", []):
+    for v in hits:
         dur = float(v.get("duration") or 0)
         if dur < 3.0:
             continue
         tags = str(v.get("tags") or "")
-        if not _is_real_video_title(tags) or not _is_family_safe_text(tags):
+        if not _is_clean_real_title(tags) or not _is_family_safe_text(tags):
             continue
         videos = v.get("videos") or {}
         best = None
@@ -263,28 +250,99 @@ def search_pixabay(query: str, per_page: int = 8) -> list[VideoCandidate]:
                 duration_sec=dur,
                 width=int(best.get("width") or 1280),
                 height=int(best.get("height") or 720),
-                thumb_url=None,
+                tier="tier_1_video",
+            )
+        )
+    return out
+
+
+def search_coverr(query: str, limit: int = 6) -> list[VideoCandidate]:
+    """Secondary Tier 1: Coverr Curated Stock Video API (gracefully skipped if COVERR_API_KEY unset)."""
+    api_key = os.environ.get("COVERR_API_KEY", "").strip()
+    if not api_key:
+        return []
+    cached = _cache_get("coverr_video", query)
+    items: list[dict[str, Any]]
+    if cached is not None:
+        items = cached
+    else:
+        try:
+            resp = requests.get(
+                "https://api.coverr.co/videos",
+                headers={"Authorization": f"Bearer {api_key}", "User-Agent": USER_AGENT},
+                params={"query": query, "page_size": limit},
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                return []
+            payload = resp.json()
+            items = payload.get("hits") or payload.get("videos") or []
+            if isinstance(payload, list):
+                items = payload
+            _cache_set("coverr_video", query, items[:limit])
+        except requests.RequestException:
+            return []
+
+    out: list[VideoCandidate] = []
+    for item in items[:limit]:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or item.get("description") or query)
+        tags_raw = item.get("tags") or []
+        tags_txt = " ".join(str(t) for t in tags_raw) if isinstance(tags_raw, list) else str(tags_raw)
+        if not _is_clean_real_title(f"{title} {tags_txt}") or not _is_family_safe_text(title, tags_txt):
+            continue
+        urls = item.get("urls") or {}
+        mp4 = (
+            urls.get("mp4_download")
+            or urls.get("mp4")
+            or item.get("mp4_url")
+            or item.get("url")
+        )
+        if not mp4 or not isinstance(mp4, str):
+            continue
+        dur = float(item.get("duration") or 8.0)
+        if dur < 3.0:
+            continue
+        out.append(
+            VideoCandidate(
+                source="coverr",
+                title=f"Coverr - {title}"[:120],
+                download_url=mp4,
+                page_url=str(item.get("page_url") or mp4),
+                license="Coverr Free License",
+                duration_sec=dur,
+                width=int(item.get("width") or 1080),
+                height=int(item.get("height") or 1920),
+                tier="tier_1_video",
             )
         )
     return out
 
 
 def search_nasa_videos(query: str, limit: int = 5) -> list[VideoCandidate]:
-    """Search NASA Images & Video API (0 API key, Public Domain) for physics/earth/science HD clips."""
-    try:
-        resp = requests.get(
-            "https://images-api.nasa.gov/search",
-            headers={"User-Agent": USER_AGENT},
-            params={"q": query, "media_type": "video"},
-            timeout=20,
-        )
-    except requests.RequestException:
-        return []
-    if resp.status_code != 200:
-        return []
-    items = resp.json().get("collection", {}).get("items", [])
+    """Keyless Tier 1: NASA Images & Video API (Public Domain HD physics/optics/energy/materials)."""
+    cached = _cache_get("nasa_video", query)
+    items: list[dict[str, Any]]
+    if cached is not None:
+        items = cached
+    else:
+        try:
+            resp = requests.get(
+                "https://images-api.nasa.gov/search",
+                headers={"User-Agent": USER_AGENT},
+                params={"q": query, "media_type": "video"},
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                return []
+            items = resp.json().get("collection", {}).get("items", [])[: limit * 2]
+            _cache_set("nasa_video", query, items)
+        except requests.RequestException:
+            return []
+
     out: list[VideoCandidate] = []
-    for item in items[: limit * 2]:
+    for item in items:
         if len(out) >= limit:
             break
         data_list = item.get("data") or []
@@ -294,37 +352,25 @@ def search_nasa_videos(query: str, limit: int = 5) -> list[VideoCandidate]:
         title = str(data.get("title") or "").strip()
         desc = str(data.get("description") or "")
         nasa_id = str(data.get("nasa_id") or "").strip()
-        if not title or not _is_real_video_title(title) or not _is_family_safe_text(title, desc):
+        if not title or not _is_clean_real_title(title) or not _is_family_safe_text(title, desc):
             continue
         collection_url = item.get("href")
         if not collection_url:
             continue
         try:
-            col_resp = requests.get(collection_url, headers={"User-Agent": USER_AGENT}, timeout=15)
-        except requests.RequestException:
-            continue
-        if col_resp.status_code != 200:
-            continue
-        try:
+            col_resp = requests.get(collection_url, headers={"User-Agent": USER_AGENT}, timeout=12)
+            if col_resp.status_code != 200:
+                continue
             asset_urls = col_resp.json()
-        except ValueError:
+        except Exception:
             continue
         mp4_urls = [u for u in asset_urls if isinstance(u, str) and u.lower().endswith(".mp4")]
         if not mp4_urls:
             continue
-        mp4_url = None
-        for suffix in ("~medium.mp4", "~small.mp4", "~orig.mp4", "~mobile.mp4"):
-            matched = [u for u in mp4_urls if u.lower().endswith(suffix)]
-            if matched:
-                mp4_url = matched[0]
-                break
-        if mp4_url is None:
-            mp4_url = mp4_urls[0]
-        thumb_url = None
-        for lnk in item.get("links") or []:
-            if isinstance(lnk, dict) and lnk.get("rel") == "preview" and lnk.get("href"):
-                thumb_url = lnk["href"]
-                break
+        mp4_url = next(
+            (u for sfx in ("~medium.mp4", "~small.mp4", "~orig.mp4") for u in mp4_urls if u.lower().endswith(sfx)),
+            mp4_urls[0],
+        )
         out.append(
             VideoCandidate(
                 source="nasa",
@@ -335,58 +381,452 @@ def search_nasa_videos(query: str, limit: int = 5) -> list[VideoCandidate]:
                 duration_sec=10.0,
                 width=1280,
                 height=720,
-                thumb_url=thumb_url,
+                tier="tier_1_video",
             )
         )
     return out
 
 
-_FLOW_BILINGUAL_SYNONYMS: dict[str, set[str]] = {
-    "nanas": {"pineapple", "bromelain", "enzim", "enzyme"},
-    "pineapple": {"nanas", "bromelain", "enzyme"},
-    "daging": {"meat", "beef", "steak", "protein", "serat"},
-    "meat": {"daging", "beef", "steak"},
-    "beef": {"daging", "steak", "meat"},
-    "kopi": {"coffee", "caffeine", "kafein", "seduh", "brew"},
-    "coffee": {"kopi", "caffeine", "brew"},
-    "air": {"water", "droplet", "h2o", "tetes", "liquid", "cairan"},
-    "water": {"air", "droplet", "tetes", "liquid"},
-    "minyak": {"oil", "frying", "goreng", "lipid", "lemak"},
-    "oil": {"minyak", "frying", "goreng"},
-    "es": {"ice", "beku", "frost", "kristal", "crystal"},
-    "ice": {"es", "beku", "frost", "melting", "mencair"},
-    "garam": {"salt", "nacl", "sodium", "kristal"},
-    "salt": {"garam", "nacl", "sodium", "crystal"},
-    "gula": {"sugar", "karamel", "caramel", "glukosa"},
-    "sugar": {"gula", "caramel", "glucose"},
-    "api": {"fire", "flame", "pembakaran", "nyala", "burn"},
-    "fire": {"api", "flame", "burn", "combustion"},
-    "karat": {"rust", "korosi", "corrosion", "iron", "besi", "oksidasi"},
-    "rust": {"karat", "korosi", "corrosion", "iron", "besi"},
-    "sel": {"cell", "cells", "mikroskop", "microscope", "bakteri"},
-    "cell": {"sel", "microscope", "mikroskop"},
-    "telur": {"egg", "albumin", "protein"},
-    "egg": {"telur", "protein", "boiling"},
-    "bawang": {"onion", "garlic", "tear", "mata"},
-    "onion": {"bawang", "garlic"},
-    "susu": {"milk", "casein", "kasein", "emulsion"},
-    "milk": {"susu", "emulsion"},
-    "pisang": {"banana", "buah", "fruit"},
-    "banana": {"pisang", "fruit"},
-    "asam": {"acid", "ph", "cuka", "vinegar", "lemon"},
-    "acid": {"asam", "vinegar", "lemon"},
-    "panas": {"heat", "hot", "boiling", "mendidih", "thermal"},
-    "mendidih": {"boiling", "bubbles", "gelembung", "heat"},
-    "boiling": {"mendidih", "bubbles", "panas"},
-    "goreng": {"frying", "oil", "minyak", "pan", "wajan"},
-    "frying": {"goreng", "oil", "minyak", "pan"},
-    "kristal": {"crystal", "crystals", "lattice", "kisi"},
-    "crystal": {"kristal", "salt", "garam"},
-}
+def search_pexels(query: str, per_page: int = 6, orientation: Optional[str] = "portrait") -> list[VideoCandidate]:
+    """Strictly optional Tier 1 legacy helper: skips silently if unset or returning 401/403/429."""
+    global _PEXELS_DISABLED_THIS_RUN
+    api_key = os.environ.get("PEXELS_API_KEY", "").strip()
+    if _PEXELS_DISABLED_THIS_RUN or not api_key:
+        return []
+    params: dict[str, Any] = {"query": query, "per_page": per_page}
+    if orientation:
+        params["orientation"] = orientation
+    try:
+        resp = requests.get(
+            "https://api.pexels.com/videos/search",
+            headers={"Authorization": api_key, "User-Agent": USER_AGENT},
+            params=params,
+            timeout=15,
+        )
+    except requests.RequestException:
+        return []
+    if resp.status_code in (401, 403, 429):
+        _PEXELS_DISABLED_THIS_RUN = True
+        print(f"[asset_scout] Pexels HTTP {resp.status_code} — disabling Pexels for remainder of run.")
+        return []
+    if resp.status_code != 200:
+        return []
+    out: list[VideoCandidate] = []
+    for v in resp.json().get("videos", []):
+        dur = float(v.get("duration", 0))
+        if dur < 3.0:
+            continue
+        files = sorted(
+            [f for f in v.get("video_files", []) if f.get("file_type") == "video/mp4"],
+            key=lambda f: abs((f.get("height") or 0) - 1080),
+        )
+        if not files:
+            continue
+        best = files[0]
+        out.append(
+            VideoCandidate(
+                source="pexels",
+                title=f"Pexels #{v.get('id')} - {query}",
+                download_url=best["link"],
+                page_url=v.get("url", best["link"]),
+                license="Pexels License (Free)",
+                duration_sec=dur,
+                width=int(best.get("width") or 720),
+                height=int(best.get("height") or 1280),
+                tier="tier_1_video",
+            )
+        )
+    return out
 
+
+def search_wikimedia_videos(query: str, limit: int = 8) -> list[VideoCandidate]:
+    """Strict last-resort Tier 1 fallback: blocks lectures/presentations/slides/demos & >3m, trims 2.0s ends."""
+    headers = {"User-Agent": USER_AGENT}
+    params = {
+        "action": "query",
+        "format": "json",
+        "generator": "search",
+        "gsrsearch": f"{query} filetype:video",
+        "gsrnamespace": "6",
+        "gsrlimit": str(limit),
+        "prop": "videoinfo",
+        "viprop": "url|size|mime|extmetadata",
+        "viurlwidth": "720",
+    }
+    try:
+        resp = requests.get("https://commons.wikimedia.org/w/api.php", headers=headers, params=params, timeout=18)
+        if resp.status_code != 200:
+            return []
+        pages = resp.json().get("query", {}).get("pages", {})
+    except Exception:
+        return []
+
+    out: list[VideoCandidate] = []
+    for page in pages.values():
+        title = page.get("title", "")
+        meta = page.get("extmetadata", {})
+        meta_text = " ".join(
+            str(meta.get(k, {}).get("value", ""))
+            for k in ("Categories", "ImageDescription", "ObjectName", "Restrictions")
+        )
+        if not _is_clean_real_title(f"{title} {meta_text}"):
+            continue
+        if not _is_family_safe_text(title, meta_text):
+            continue
+        vis = page.get("videoinfo", [])
+        if not vis:
+            continue
+        vi = vis[0]
+        mime = vi.get("mime", "")
+        if not mime.startswith("video/") and "ogg" not in mime:
+            continue
+        dur = float(vi.get("duration") or 0.0)
+        w = int(vi.get("width") or 0)
+        h = int(vi.get("height") or 0)
+        # Strict duration <= 180s (3 min) & >= 5s (so 2.0s trim on both ends leaves >= 1s)
+        if dur < 5.5 or dur > 180.0 or w < 480 or h < 360:
+            continue
+        url = vi.get("url")
+        if not url:
+            continue
+        lic = re.sub(r"<[^>]+>", "", str(meta.get("LicenseShortName", {}).get("value", "Wikimedia Commons"))).strip()
+        out.append(
+            VideoCandidate(
+                source="wikimedia_commons",
+                title=title.replace("File:", "")[:120],
+                download_url=url,
+                page_url=vi.get("descriptionurl", url),
+                license=lic,
+                duration_sec=dur,
+                width=w,
+                height=h,
+                tier="tier_1_video",
+                needs_trim_ends=True,
+            )
+        )
+    out.sort(key=lambda c: (0 if 6 <= c.duration_sec <= 60 else 1, -min(c.width, 1920)))
+    return out
+
+
+# === TIER 2: Portrait Photos + Anti-Jitter Ken Burns ===
+
+def search_unsplash_portrait(query: str, per_page: int = 6) -> list[VideoCandidate]:
+    """Tier 2 Primary: Unsplash vertical photos (Client-ID auth + download_location trigger)."""
+    key = os.environ.get("UNSPLASH_ACCESS_KEY", "").strip()
+    if not key:
+        return []
+    cached = _cache_get("unsplash_photo", query)
+    results: list[dict[str, Any]]
+    if cached is not None:
+        results = cached
+    else:
+        try:
+            resp = requests.get(
+                "https://api.unsplash.com/search/photos",
+                headers={
+                    "Authorization": f"Client-ID {key}",
+                    "Accept-Version": "v1",
+                    "User-Agent": USER_AGENT,
+                },
+                params={
+                    "query": query,
+                    "orientation": "portrait",
+                    "per_page": per_page,
+                    "content_filter": "high",
+                },
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                return []
+            results = resp.json().get("results", [])
+            _cache_set("unsplash_photo", query, results)
+        except requests.RequestException:
+            return []
+
+    out: list[VideoCandidate] = []
+    for item in results:
+        alt = str(item.get("alt_description") or item.get("description") or query)
+        if not _is_clean_real_title(alt) or not _is_family_safe_text(alt):
+            continue
+        urls = item.get("urls") or {}
+        img_url = urls.get("regular") or urls.get("full") or urls.get("small")
+        if not img_url:
+            continue
+        links = item.get("links") or {}
+        out.append(
+            VideoCandidate(
+                source="unsplash",
+                title=f"Unsplash - {alt}"[:120],
+                download_url=img_url,
+                page_url=links.get("html") or img_url,
+                license="Unsplash License (Free)",
+                duration_sec=8.0,
+                width=int(item.get("width") or 1080),
+                height=int(item.get("height") or 1920),
+                tier="tier_2_photo_ken_burns",
+                unsplash_download_location=links.get("download_location"),
+            )
+        )
+    return out
+
+
+def _trigger_unsplash_download(cand: VideoCandidate) -> None:
+    key = os.environ.get("UNSPLASH_ACCESS_KEY", "").strip()
+    if not key or not cand.unsplash_download_location:
+        return
+    try:
+        requests.get(
+            cand.unsplash_download_location,
+            headers={"Authorization": f"Client-ID {key}", "User-Agent": USER_AGENT},
+            timeout=8,
+        )
+    except Exception:
+        pass
+
+
+def search_pixabay_photo(query: str, per_page: int = 6) -> list[VideoCandidate]:
+    """Tier 2 Secondary: Pixabay vertical photo API with 24h local cache."""
+    api_key = os.environ.get("PIXABAY_API_KEY", "").strip()
+    if not api_key:
+        return []
+    cached = _cache_get("pixabay_photo", query)
+    hits: list[dict[str, Any]]
+    if cached is not None:
+        hits = cached
+    else:
+        try:
+            resp = requests.get(
+                "https://pixabay.com/api/",
+                headers={"User-Agent": USER_AGENT},
+                params={
+                    "key": api_key,
+                    "q": query,
+                    "image_type": "photo",
+                    "orientation": "vertical",
+                    "safesearch": "true",
+                    "per_page": per_page,
+                },
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                return []
+            hits = resp.json().get("hits", [])
+            _cache_set("pixabay_photo", query, hits)
+        except requests.RequestException:
+            return []
+
+    out: list[VideoCandidate] = []
+    for item in hits:
+        tags = str(item.get("tags") or query)
+        if not _is_clean_real_title(tags) or not _is_family_safe_text(tags):
+            continue
+        url = item.get("largeImageURL") or item.get("webformatURL")
+        if not url:
+            continue
+        out.append(
+            VideoCandidate(
+                source="pixabay_photo",
+                title=f"Pixabay Photo #{item.get('id')} - {tags}"[:120],
+                download_url=url,
+                page_url=item.get("pageURL") or url,
+                license="Pixabay Content License (Free)",
+                duration_sec=8.0,
+                width=int(item.get("imageWidth") or 1080),
+                height=int(item.get("imageHeight") or 1600),
+                tier="tier_2_photo_ken_burns",
+            )
+        )
+    return out
+
+
+def search_openverse_photo(query: str, limit: int = 5) -> list[VideoCandidate]:
+    """Tier 2 Tertiary (Keyless): Openverse CC0 / Public Domain images."""
+    cached = _cache_get("openverse_photo", query)
+    results: list[dict[str, Any]]
+    if cached is not None:
+        results = cached
+    else:
+        try:
+            resp = requests.get(
+                "https://api.openverse.org/v1/images/",
+                headers={"User-Agent": USER_AGENT},
+                params={"q": query, "license": "cc0,pdm", "page_size": limit},
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                return []
+            results = resp.json().get("results", [])
+            _cache_set("openverse_photo", query, results)
+        except requests.RequestException:
+            return []
+
+    out: list[VideoCandidate] = []
+    for item in results:
+        title = str(item.get("title") or query)
+        if not _is_clean_real_title(title) or not _is_family_safe_text(title):
+            continue
+        url = item.get("url")
+        w = int(item.get("width") or 0)
+        h = int(item.get("height") or 0)
+        if not url or (w and w < 640):
+            continue
+        out.append(
+            VideoCandidate(
+                source="openverse",
+                title=f"Openverse - {title}"[:120],
+                download_url=url,
+                page_url=item.get("foreign_landing_url") or url,
+                license=f"CC0 / PDM ({item.get('license', 'openverse')})",
+                duration_sec=8.0,
+                width=w or 1080,
+                height=h or 1080,
+                tier="tier_2_photo_ken_burns",
+            )
+        )
+    return out
+
+
+def _render_image_to_ken_burns_mp4(
+    img_path: Path,
+    dest_mp4: Path,
+    duration_sec: float = 8.0,
+    motion: str = "slow_zoom_in",
+) -> Optional[dict]:
+    """Render high-res still photo -> smooth anti-jitter 1080x1920 Ken Burns MP4 (30fps)."""
+    try:
+        fps = 30
+        frames = max(90, int(round(duration_sec * fps)))
+        # Pre-scale & center-crop to 2160x3840 (2x target) BEFORE zoompan so subpixel zoom stays silk-smooth (no jitter!)
+        if motion == "slow_zoom_out":
+            zp = f"zoompan=z='max(1.08-on/{frames}*0.08,1.0)':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps={fps}"
+        elif motion == "pan_right":
+            zp = f"zoompan=z='1.08':d={frames}:x='(iw-iw/zoom)*on/{frames}':y='ih/2-(ih/zoom/2)':s=1080x1920:fps={fps}"
+        else:
+            zp = f"zoompan=z='min(zoom+0.08/{frames},1.08)':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps={fps}"
+
+        vf = (
+            "scale=2160:3840:force_original_aspect_ratio=increase:flags=lanczos,"
+            "crop=2160:3840,"
+            f"{zp},"
+            "eq=contrast=1.05:saturation=1.08,"
+            "format=yuv420p"
+        )
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", str(img_path),
+                "-vf", vf,
+                "-t", f"{duration_sec:.2f}",
+                "-an",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+                str(dest_mp4),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return probe_video(dest_mp4)
+    except Exception:
+        return None
+
+
+# === TIER 3: AI-Generated 9:16 Scene + Ken Burns (Microscopic / Unmatchable Shots) ===
+
+def _generate_ai_scene_image(scene: SceneSpec, out_jpg: Path) -> Optional[str]:
+    """Generate 1 clean text-free 9:16 macro/photoreal visual via Gemini Imagen / Flash Image / Cloudflare."""
+    prompt = (
+        f"Photorealistic extreme macro studio photography for a science documentary depicting: {scene.visual_query}. "
+        f"Context: {scene.narration[:140]}. Vertical 9:16 portrait composition, dramatic crisp lighting, sharp shallow "
+        f"depth of field, STRICTLY NO TEXT, NO WORDS, NO LABELS, NO WATERMARKS, NO LOGOS."
+    )
+
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if gemini_key:
+        # 1. Try Imagen 3 predict endpoint (native 9:16)
+        for im_model in ("imagen-3.0-generate-002", "imagen-3.0-generate-001"):
+            try:
+                resp = requests.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{im_model}:predict?key={gemini_key}",
+                    json={
+                        "instances": [{"prompt": prompt}],
+                        "parameters": {"sampleCount": 1, "aspectRatio": "9:16"},
+                    },
+                    timeout=60,
+                )
+                if resp.status_code == 200:
+                    preds = resp.json().get("predictions") or []
+                    b64 = (preds[0] or {}).get("bytesBase64Encoded") if preds else None
+                    if b64:
+                        out_jpg.write_bytes(base64.b64decode(b64))
+                        return f"gemini_{im_model}"
+            except Exception:
+                pass
+
+        # 2. Try Gemini native image generation models
+        for gm_model in ("gemini-2.5-flash-image", "gemini-2.0-flash-exp-image-generation"):
+            try:
+                resp = requests.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{gm_model}:generateContent?key={gemini_key}",
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {"responseModalities": ["IMAGE"]},
+                    },
+                    timeout=60,
+                )
+                if resp.status_code == 200:
+                    cands = resp.json().get("candidates") or []
+                    parts = ((cands[0] or {}).get("content") or {}).get("parts") or [] if cands else []
+                    for pt in parts:
+                        inline = pt.get("inlineData") or pt.get("inline_data") or {}
+                        if inline.get("data"):
+                            out_jpg.write_bytes(base64.b64decode(inline["data"]))
+                            return gm_model
+            except Exception:
+                pass
+
+    # 3. Optional Cloudflare Workers AI Flux Schnell
+    cf_acc = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
+    cf_tok = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
+    if cf_acc and cf_tok:
+        try:
+            resp = requests.post(
+                f"https://api.cloudflare.com/client/v4/accounts/{cf_acc}/ai/run/@cf/black-forest-labs/flux-1-schnell",
+                headers={"Authorization": f"Bearer {cf_tok}"},
+                json={"prompt": prompt, "num_steps": 4},
+                timeout=60,
+            )
+            if resp.status_code == 200:
+                img_b64 = (resp.json().get("result") or {}).get("image")
+                if img_b64:
+                    out_jpg.write_bytes(base64.b64decode(img_b64))
+                    return "cloudflare_flux"
+        except Exception:
+            pass
+
+    return None
+
+
+def _draw_zero_crash_optical_backdrop(out_jpg: Path) -> None:
+    """Deterministic text-free studio macro backdrop ONLY if external image generation APIs fail/429."""
+    img = Image.new("RGB", (1080, 1920), (12, 20, 38))
+    d = ImageDraw.Draw(img)
+    for y in range(0, 1920, 6):
+        c_b = int(38 + 34 * (1.0 - abs(y - 960) / 960.0))
+        c_g = int(20 + 22 * (1.0 - abs(y - 960) / 960.0))
+        d.rectangle([0, y, 1080, y + 6], fill=(12, c_g, c_b))
+    for i in range(18):
+        x = (i * 173 + 90) % 980 + 50
+        y = (i * 281 + 140) % 1600 + 160
+        r = 45 + (i % 4) * 32
+        d.ellipse([x - r, y - r, x + r, y + r], outline=(42, 165, 225), width=3)
+    img.save(out_jpg, quality=92)
+
+
+# === Helpers: Flow Clip Bank + Download & Normalize ===
 
 def list_flow_clip_bank() -> list[dict]:
-    """Fetch available Google AI Flow MP4 clips from <gdrive_root>/Flow_Clip_Bank via Apps Script webhook."""
+    """Fetch Google AI Flow MP4 clips from <gdrive_root>/Flow_Clip_Bank via Apps Script webhook."""
     raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
     if not raw_url:
         return []
@@ -403,7 +843,7 @@ def list_flow_clip_bank() -> list[dict]:
                 "root_folder": get_gdrive_root(),
                 "folder_name": "Flow_Clip_Bank",
             },
-            timeout=25,
+            timeout=20,
         )
         if resp.status_code != 200:
             return []
@@ -416,185 +856,7 @@ def list_flow_clip_bank() -> list[dict]:
         return []
 
 
-def _score_flow_clip_for_scene(filename: str, scene: SceneSpec) -> int:
-    stem = Path(filename).stem.lower()
-    raw_tokens = [
-        t for t in re.findall(r"[a-z0-9]+", stem)
-        if len(t) >= 2 and t not in {"flow", "clip", "clips", "video", "scene", "9x16", "hd", "mp4", "mov"}
-    ]
-    if not raw_tokens:
-        return 0
-    expanded_file_tokens: set[str] = set(raw_tokens)
-    for tok in raw_tokens:
-        expanded_file_tokens |= _FLOW_BILINGUAL_SYNONYMS.get(tok, set())
-
-    scene_blob = " ".join([scene.visual_query, *scene.fallback_queries, scene.narration or ""]).lower()
-    scene_tokens = set(re.findall(r"[a-z0-9]+", scene_blob))
-    overlap = expanded_file_tokens & scene_tokens
-    return len(overlap)
-
-
-def _try_match_flow_bank_clip(
-    scene: SceneSpec,
-    flow_clips: list[dict],
-    used_flow_ids: set[str],
-    used_urls: set[str],
-    dest_mp4: Path,
-    episode_id: str,
-    memory: StudioMemory,
-) -> Optional[tuple[VideoCandidate, dict]]:
-    if not flow_clips:
-        return None
-    scored: list[tuple[int, dict]] = []
-    for clip in flow_clips:
-        fid = str(clip.get("file_id") or "")
-        wurl = str(clip.get("url") or clip.get("web_url") or f"flow://{fid}")
-        if not fid or fid in used_flow_ids or wurl in used_urls:
-            continue
-        sc = _score_flow_clip_for_scene(str(clip.get("filename") or ""), scene)
-        if sc >= 1:
-            scored.append((sc, clip))
-    if not scored:
-        return None
-    scored.sort(key=lambda pair: (-pair[0], str(pair[1].get("filename") or "")))
-
-    raw_url = os.environ.get("GDRIVE_WEBHOOK_URL", "").strip()
-    if not raw_url:
-        return None
-    from src.tools.gdrive_sync import _normalize_webhook_url
-
-    webhook_url = _normalize_webhook_url(raw_url)
-    token = os.environ.get("GDRIVE_WEBHOOK_TOKEN", "").strip()
-
-    for _sc, clip in scored[:3]:
-        fid = str(clip["file_id"])
-        fname = str(clip["filename"])
-        wurl = str(clip.get("url") or clip.get("web_url") or f"flow://{fid}")
-        try:
-            dl_resp = requests.post(
-                webhook_url,
-                json={"action": "download_file", "token": token, "file_id": fid},
-                timeout=90,
-            )
-            if dl_resp.status_code != 200:
-                continue
-            dl_json = dl_resp.json()
-            if not dl_json.get("ok") or not dl_json.get("content_base64"):
-                continue
-            raw_path = dest_mp4.with_suffix(".raw_dl")
-            raw_path.write_bytes(base64.b64decode(dl_json["content_base64"]))
-            raw_info = probe_video(raw_path)
-            if not raw_info or raw_info.get("duration", 0) < 2.0:
-                raw_path.unlink(missing_ok=True)
-                continue
-            ok, _clean, reason = vision_screen_clip(raw_path, scene)
-            print(f"[asset_scout] {scene.scene_id} Flow_Clip_Bank '{fname}': ok={ok} ({reason[:140]})")
-            used_urls.add(wurl)
-            if not ok:
-                raw_path.unlink(missing_ok=True)
-                continue
-            chosen_info = _transcode_to_mp4(raw_path, raw_info, dest_mp4)
-            if not chosen_info:
-                raw_path.unlink(missing_ok=True)
-                continue
-            used_flow_ids.add(fid)
-            try:
-                memory.mark_flow_clip_used(fid, fname, episode_id)
-            except Exception:
-                pass
-            cand = VideoCandidate(
-                source="google_flow",
-                title=f"Google Flow - {fname}"[:120],
-                download_url=wurl,
-                page_url=wurl,
-                license="Google AI Flow (User Subscription Bank)",
-                duration_sec=float(chosen_info.get("duration") or raw_info.get("duration") or 6.0),
-                width=int(chosen_info.get("width") or 1080),
-                height=int(chosen_info.get("height") or 1920),
-                thumb_url=None,
-            )
-            return cand, chosen_info
-        except Exception as exc:
-            print(f"[asset_scout] Peringatan ambil Flow_Clip_Bank '{fname}': {exc}")
-    return None
-
-
-def search_wikimedia_videos(query: str, limit: int = 12) -> list[VideoCandidate]:
-    """Search Wikimedia Commons for real video files (.webm / .mp4 / .ogv)."""
-    headers = {"User-Agent": USER_AGENT}
-    params = {
-        "action": "query",
-        "format": "json",
-        "generator": "search",
-        "gsrsearch": f"{query} filetype:video",
-        "gsrnamespace": "6",
-        "gsrlimit": str(limit),
-        "prop": "videoinfo",
-        "viprop": "url|size|mime|extmetadata",
-        "viurlwidth": "640",
-    }
-    resp = requests.get(
-        "https://commons.wikimedia.org/w/api.php",
-        headers=headers,
-        params=params,
-        timeout=25,
-    )
-    if resp.status_code != 200:
-        return []
-    pages = resp.json().get("query", {}).get("pages", {})
-    out: list[VideoCandidate] = []
-    for page in pages.values():
-        title = page.get("title", "")
-        if not _is_real_video_title(title):
-            continue
-        vis = page.get("videoinfo", [])
-        if not vis:
-            continue
-        vi = vis[0]
-        mime = vi.get("mime", "")
-        if not mime.startswith("video/") and "ogg" not in mime:
-            continue
-        dur = float(vi.get("duration") or 0.0)
-        w = int(vi.get("width") or 0)
-        h = int(vi.get("height") or 0)
-        if dur < 3.0 or dur > 600.0 or w < 320 or h < 240:
-            continue
-        url = vi.get("url")
-        if not url:
-            continue
-        meta = vi.get("extmetadata", {})
-        meta_text = " ".join(
-            str(meta.get(k, {}).get("value", ""))
-            for k in ("Categories", "ImageDescription", "ObjectName", "Restrictions")
-        )
-        if not _is_family_safe_text(title, meta_text):
-            continue
-        lic = meta.get("LicenseShortName", {}).get("value", "Wikimedia Commons")
-        lic = re.sub(r"<[^>]+>", "", str(lic)).strip()
-        out.append(
-            VideoCandidate(
-                source="wikimedia_commons",
-                title=title.replace("File:", ""),
-                download_url=url,
-                page_url=vi.get("descriptionurl", url),
-                license=lic,
-                duration_sec=dur,
-                width=w,
-                height=h,
-                thumb_url=vi.get("thumburl"),
-            )
-        )
-    # Prefer HD, shorter focused clips (5s - 90s)
-    out.sort(key=lambda c: (0 if 5 <= c.duration_sec <= 90 else 1, -min(c.width, 1920)))
-    return out
-
-
-def _download_raw_clip(
-    candidate: VideoCandidate,
-    raw_path: Path,
-    max_download_mb: int = 32,
-) -> Optional[dict]:
-    """Download candidate video up to max_download_mb and verify it is decodable before screening."""
+def _download_raw_clip(candidate: VideoCandidate, raw_path: Path, max_download_mb: int = 32) -> Optional[dict]:
     raw_path.parent.mkdir(parents=True, exist_ok=True)
     headers = {"User-Agent": USER_AGENT}
     try:
@@ -609,6 +871,17 @@ def _download_raw_clip(
                         if total > limit_bytes:
                             break
                         fh.write(chunk)
+        if candidate.tier == "tier_2_photo_ken_burns":
+            try:
+                im = Image.open(raw_path).convert("RGB")
+                if im.width < 480 or im.height < 480:
+                    raw_path.unlink(missing_ok=True)
+                    return None
+                return {"width": im.width, "height": im.height, "duration": 8.0, "is_image": True}
+            except Exception:
+                raw_path.unlink(missing_ok=True)
+                return None
+
         info = probe_video(raw_path)
         if not info or info["duration"] < 2.5 or info["width"] < 320:
             raw_path.unlink(missing_ok=True)
@@ -619,31 +892,25 @@ def _download_raw_clip(
         return None
 
 
-def _transcode_to_mp4(raw_path: Path, info: dict, dest_mp4: Path) -> Optional[dict]:
-    """Transcode approved raw clip (up to 25s slice) into clean yuv420p H.264 MP4."""
+def _transcode_to_mp4(raw_path: Path, info: dict, dest_mp4: Path, trim_ends_sec: float = 0.0) -> Optional[dict]:
+    """Transcode approved raw clip into clean H.264 MP4 (trims 2.0s start & end if Wikimedia)."""
     try:
-        start_at = 1.5 if info["duration"] > 18.0 else 0.0
+        dur = float(info.get("duration") or 10.0)
+        if trim_ends_sec > 0.0 and dur > (trim_ends_sec * 2 + 2.0):
+            start_at = trim_ends_sec
+            slice_dur = min(22.0, dur - trim_ends_sec * 2.0)
+        else:
+            start_at = 1.5 if dur > 18.0 else 0.0
+            slice_dur = 22.0
         subprocess.run(
             [
-                "ffmpeg",
-                "-y",
-                "-ss",
-                f"{start_at:.2f}",
-                "-i",
-                str(raw_path),
-                "-t",
-                "25",
+                "ffmpeg", "-y",
+                "-ss", f"{start_at:.2f}",
+                "-i", str(raw_path),
+                "-t", f"{slice_dur:.2f}",
                 "-an",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "veryfast",
-                "-crf",
-                "21",
-                "-pix_fmt",
-                "yuv420p",
-                "-movflags",
-                "+faststart",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
+                "-pix_fmt", "yuv420p", "-movflags", "+faststart",
                 str(dest_mp4),
             ],
             check=True,
@@ -657,124 +924,7 @@ def _transcode_to_mp4(raw_path: Path, info: dict, dest_mp4: Path) -> Optional[di
         raw_path.unlink(missing_ok=True)
 
 
-def download_and_normalize_clip(
-    candidate: VideoCandidate,
-    dest_mp4: Path,
-    max_download_mb: int = 32,
-) -> Optional[dict]:
-    """Download candidate video and normalize to clean H.264 MP4 (max 25s slice) for fast rendering."""
-    dest_mp4.parent.mkdir(parents=True, exist_ok=True)
-    raw_path = dest_mp4.with_suffix(".raw_dl")
-    info = _download_raw_clip(candidate, raw_path, max_download_mb=max_download_mb)
-    if not info:
-        return None
-    return _transcode_to_mp4(raw_path, info, dest_mp4)
-
-
-def _build_frame_strip(clip: Path, out_jpg: Path) -> Optional[Path]:
-    """Grab 3 frames (15% / 50% / 85%) of a clip and tile them horizontally for vision screening."""
-    try:
-        from PIL import Image
-
-        info = probe_video(clip)
-        if not info:
-            return None
-        dur = max(1.0, float(info["duration"]))
-        frames = []
-        for i, frac in enumerate((0.15, 0.5, 0.85)):
-            fp = out_jpg.with_name(f"{out_jpg.stem}_f{i}.jpg")
-            subprocess.run(
-                ["ffmpeg", "-y", "-ss", f"{dur * frac:.2f}", "-i", str(clip), "-frames:v", "1",
-                 "-vf", "scale=-2:360", "-q:v", "4", str(fp)],
-                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-            if fp.exists():
-                frames.append(Image.open(fp).convert("RGB"))
-                fp.unlink(missing_ok=True)
-        if not frames:
-            return None
-        total_w = sum(f.width for f in frames) + 8 * (len(frames) - 1)
-        strip = Image.new("RGB", (total_w, max(f.height for f in frames)), (0, 0, 0))
-        x = 0
-        for f in frames:
-            strip.paste(f, (x, 0))
-            x += f.width + 8
-        strip.save(out_jpg, quality=85)
-        return out_jpg
-    except Exception:
-        return None
-
-
-def vision_screen_clip(clip: Path, scene: SceneSpec) -> tuple[bool, bool, str]:
-    """Ask Gemini Vision whether a clip is family-safe, relevant, and free of watermarks/UI overlays.
-
-    Returns (accepted, safe_but_weak, reason). If vision screening is unavailable, falls back to accepting
-    (metadata blocklist has already been applied).
-    """
-    if os.environ.get("ASSET_VISION_SCREEN", "true").lower() != "true":
-        return True, True, "vision screening disabled"
-    if not (os.environ.get("GEMINI_API_KEY") or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")):
-        return True, True, "no LLM API key configured; skipped vision screening"
-    strip = _build_frame_strip(clip, clip.with_name(f"{clip.stem}_screen.jpg"))
-    if strip is None:
-        return False, False, "could not extract frames"
-    import time
-
-    # Gentle spacing keeps Vision screening below free-tier per-minute RPM bursts
-    time.sleep(1.2)
-    try:
-        from pydantic import BaseModel, Field
-
-        from src.providers import call_structured_agent
-
-        class ClipScreen(BaseModel):
-            family_safe: bool = Field(description="False if ANY nudity, sexual/suggestive content, gore, violence, or otherwise inappropriate imagery for a kids/teen science channel")
-            relevance_score: float = Field(ge=0, le=10, description="How well the frames visually match the scene narration and visual query")
-            has_watermark_or_ui: bool = Field(description="True if frames show music-player/album art, app UI, big logos, text slides, or channel watermarks")
-            is_real_footage: bool = Field(description="True if real camera footage (not cartoon/animation/slide)")
-            is_scientific_visualization: bool = Field(
-                default=False,
-                description="True if it is a serious scientific visualization (molecular/protein model, microscopy, "
-                "research simulation render) - NOT a cartoon, fractal screensaver, or text slide",
-            )
-            reason: str = ""
-
-        verdict = call_structured_agent(
-            provider="auto",
-            model=os.environ.get("GEMINI_SCREEN_MODEL", "gemini-3.5-flash-lite"),
-            system_prompt=(
-                f"You are a strict visual safety & relevance screener for '{get_brand_name()}', a family-friendly "
-                "international everyday science & technology short-video channel. The attached image shows "
-                "3 frames sampled from a candidate stock clip. Judge it strictly."
-            ),
-            user_payload={
-                "scene_narration": scene.narration,
-                "visual_query": scene.visual_query,
-            },
-            response_model=ClipScreen,
-            handoff_path=None,
-            image_paths=[strip],
-        )
-    except Exception as exc:  # noqa: BLE001
-        err_str = str(exc)
-        if "429" in err_str or "503" in err_str or "timed out" in err_str.lower():
-            return False, True, f"vision rate-limit fallback eligible ({err_str[:80]})"
-        return False, False, f"vision screening error (rejected for safety): {err_str[:120]}"
-    finally:
-        strip.unlink(missing_ok=True)
-
-    min_rel = float(os.environ.get("ASSET_MIN_RELEVANCE", "5"))
-    sci_ok = verdict.is_scientific_visualization and verdict.relevance_score >= 6.5
-    clean = verdict.family_safe and (verdict.is_real_footage or sci_ok) and not verdict.has_watermark_or_ui
-    ok = clean and verdict.relevance_score >= min_rel
-    return ok, clean, (
-        f"safe={verdict.family_safe} real={verdict.is_real_footage} sci={verdict.is_scientific_visualization} "
-        f"ui={verdict.has_watermark_or_ui} rel={verdict.relevance_score} {verdict.reason}"
-    )
-
-
 def _next_free_path(assets_dir: Path, scene_id: str) -> Path:
-    """Versioned filenames so re-scouting never overwrites footage used by earlier render versions."""
     base = assets_dir / f"{scene_id}.mp4"
     if not base.exists():
         return base
@@ -792,7 +942,6 @@ def resolve_scene_sfx_cues(
     force_transition: bool = True,
     force_animation: bool = True,
 ) -> tuple[Optional[str], Optional[str]]:
-    """Assign fitting 100% copyright-free transition SFX + optional animation pop/spark SFX per scene."""
     raw_cue = str(getattr(scene, "sfx_cue", "") or "").strip().lower()
     if raw_cue in ("whoosh", "pop", "riser", "chime", "ding", "spark"):
         trans_cue: Optional[str] = raw_cue
@@ -809,17 +958,9 @@ def resolve_scene_sfx_cues(
         trans_cue = None
 
     anim_cue: Optional[str] = None
-    has_visual_anim = bool(
-        getattr(scene, "mechanism", None) is not None
-        or getattr(scene, "overlay_badge", None)
-    )
+    has_visual_anim = bool(getattr(scene, "mechanism", None) is not None or getattr(scene, "overlay_badge", None))
     if force_animation and has_visual_anim:
-        if trans_cue == "spark":
-            anim_cue = "pop"
-        elif trans_cue == "pop":
-            anim_cue = "spark"
-        else:
-            anim_cue = "spark" if scene_idx % 2 == 1 else "pop"
+        anim_cue = "pop" if trans_cue == "spark" else ("spark" if trans_cue == "pop" or scene_idx % 2 == 1 else "pop")
 
     return (
         memory.get_sfx_path(trans_cue) if trans_cue else None,
@@ -828,16 +969,12 @@ def resolve_scene_sfx_cues(
 
 
 _FILLER_AND_ADJECTIVES: frozenset[str] = frozenset({
-    "the", "and", "with", "from", "into", "that", "this", "for", "are", "was",
-    "in", "on", "of", "to", "a", "an", "at", "by", "or", "as", "is", "be",
-    "has", "had", "can", "not", "but", "out", "off", "all", "its", "one", "two",
-    "big", "low", "high", "use", "used", "using", "show", "showing", "video",
-    "clip", "clips", "footage", "close", "closeup", "macro", "shot", "view",
-    "real", "screen", "monitor", "computer", "dark", "light", "bright", "cold",
-    "hot", "warm", "tiny", "small", "large", "fast", "slow", "hard", "soft",
-    "red", "green", "blue", "white", "black", "orange", "yellow", "background",
-    "human", "person", "people", "hand", "hands", "finger", "fingers", "inside",
-    "surface", "object", "thing", "modern", "clean", "simple", "everyday", "next",
+    "the", "and", "with", "from", "into", "that", "this", "for", "are", "was", "in", "on", "of", "to",
+    "a", "an", "at", "by", "or", "as", "is", "be", "has", "had", "can", "not", "but", "out", "off",
+    "all", "its", "one", "two", "big", "low", "high", "use", "used", "using", "show", "showing",
+    "video", "clip", "clips", "footage", "close", "closeup", "macro", "shot", "view", "real",
+    "screen", "monitor", "computer", "dark", "light", "bright", "cold", "hot", "warm", "tiny",
+    "small", "large", "fast", "slow", "hard", "soft", "background", "modern", "clean", "simple",
 })
 
 _DOMAIN_SYNONYMS: dict[str, tuple[str, ...]] = {
@@ -846,55 +983,43 @@ _DOMAIN_SYNONYMS: dict[str, tuple[str, ...]] = {
     "induction": ("cooktop", "stove", "coil", "pan", "magnetic", "cooking"),
     "smartphone": ("phone", "mobile", "iphone", "android", "screen", "touchscreen"),
     "phone": ("smartphone", "mobile", "iphone", "display", "screen", "charger"),
-    "checkout": ("payment", "terminal", "card", "credit", "nfc", "register", "store"),
-    "payment": ("card", "credit", "contactless", "terminal", "phone", "pos"),
+    "checkout": ("payment", "terminal", "card", "credit", "nfc", "register"),
     "nfc": ("contactless", "payment", "card", "phone", "chip", "coil"),
     "oled": ("display", "screen", "smartphone", "pixel", "led", "tv"),
-    "earbuds": ("earphones", "headphones", "audio", "music", "wireless"),
+    "earbuds": ("earphones", "headphones", "audio", "wireless"),
     "microwave": ("oven", "kitchen", "food", "cooking", "heating"),
     "fridge": ("refrigerator", "freezer", "cooling", "ice", "kitchen"),
-    "refrigerator": ("fridge", "freezer", "ice", "cooling", "kitchen"),
     "teflon": ("pan", "nonstick", "skillet", "cooking", "coating", "egg"),
-    "nonstick": ("pan", "frying", "skillet", "cooking", "kitchen"),
     "smartwatch": ("watch", "fitness", "wrist", "wearable", "tracker", "heart"),
     "airplane": ("aircraft", "plane", "jet", "wing", "flight", "window"),
-    "elevator": ("lift", "building", "cable", "skyscraper"),
     "battery": ("charging", "charger", "power", "energy", "electric", "lithium"),
     "solar": ("panel", "photovoltaic", "sunlight", "renewable", "energy"),
-    "turbine": ("wind", "blade", "generator", "power", "energy"),
     "filter": ("water", "purifier", "clean", "charcoal", "glass"),
-    "bridge": ("highway", "steel", "road", "structure"),
-    "plastic": ("bottle", "polymer", "packaging", "recycling"),
 }
 
 _IRRELEVANT_STOCK_NOISE: frozenset[str] = frozenset({
-    "jellyfish", "cow", "cows", "penguin", "penguins", "butterfly", "butterflies",
-    "snake", "python", "squirrel", "kitten", "puppy", "cat", "dog", "moose",
-    "alpaca", "sheep", "goat", "horse", "flamingo", "deer", "duck", "bird",
-    "fireworks", "skateboard", "skater", "wedding", "bride", "tulip", "tulips",
-    "poppy", "snowdrop", "daisy", "lavender", "bacon", "beer", "cocktail",
-    "pilates", "yoga", "ballet", "marbles", "antiquariat", "amethyst",
-    "cream", "chocolate", "cake", "dessert", "candy",
+    "jellyfish", "cow", "cows", "penguin", "penguins", "butterfly", "butterflies", "snake", "python",
+    "squirrel", "kitten", "puppy", "cat", "dog", "moose", "alpaca", "sheep", "goat", "horse", "flamingo",
+    "deer", "duck", "bird", "fireworks", "skateboard", "skater", "wedding", "bride", "tulip", "tulips",
+    "poppy", "snowdrop", "daisy", "lavender", "bacon", "beer", "cocktail", "pilates", "yoga", "ballet",
+    "marbles", "antiquariat", "amethyst", "swimming pool", "parking garage",
 })
 
 
 def _extract_scene_topic_terms(scene: SceneSpec) -> set[str]:
     raw_blob = " ".join([scene.visual_query, *scene.fallback_queries]).lower()
-    base_tokens = [
-        t for t in re.findall(r"[a-z]{3,}", raw_blob)
-        if t not in _FILLER_AND_ADJECTIVES
-    ]
+    base_tokens = [t for t in re.findall(r"[a-z]{3,}", raw_blob) if t not in _FILLER_AND_ADJECTIVES]
     expanded: set[str] = set(base_tokens)
     for t in base_tokens:
-        for syn in _DOMAIN_SYNONYMS.get(t, ()):
-            expanded.add(syn)
+        expanded.update(_DOMAIN_SYNONYMS.get(t, ()))
     return expanded
 
 
 def _metadata_relevance_score(cand: VideoCandidate, scene: SceneSpec, topic_terms: set[str]) -> int:
     title_low = cand.title.lower()
-    # Strip "pixabay #12345 - " prefix before checking tokens
-    meta_clean = re.sub(r"^(?:pixabay|pexels)\s*#\d+\s*-\s*", "", title_low)
+    if not _is_clean_real_title(title_low, getattr(scene, "negative_keywords", [])):
+        return -10
+    meta_clean = re.sub(r"^(?:pixabay(?:\s+photo)?|pexels|coverr|unsplash|openverse|nasa)\s*#?\d*\s*-\s*", "", title_low)
     meta_tokens = set(re.findall(r"[a-z]{3,}", meta_clean))
     scene_raw_low = " ".join([scene.visual_query, *scene.fallback_queries, scene.narration or ""]).lower()
     for noise_tok in _IRRELEVANT_STOCK_NOISE:
@@ -907,6 +1032,131 @@ def _metadata_relevance_score(cand: VideoCandidate, scene: SceneSpec, topic_term
     return len(meta_stems & topic_stems)
 
 
+def _should_prioritize_nasa(scene: SceneSpec) -> bool:
+    blob = f"{scene.visual_query} {scene.narration}".lower()
+    return bool(re.search(r"\b(?:space|orbit|rocket|satellite|solar|optics|laser|earth|atmosphere|physics|thermal|infrared|radar)\b", blob))
+
+
+def _gather_tier1_video_candidates(scene: SceneSpec, query: str) -> list[VideoCandidate]:
+    """Gather Tier 1 real video candidates without Pexels requirement."""
+    cands: list[VideoCandidate] = []
+    if _should_prioritize_nasa(scene):
+        cands.extend(search_nasa_videos(query, limit=4))
+    cands.extend(search_pixabay(query, per_page=6))
+    cands.extend(search_coverr(query, limit=5))
+    cands.extend(search_pexels(query, per_page=4))  # returns [] immediately if unset or 401/403/429
+    if not _should_prioritize_nasa(scene) and len(cands) < 2:
+        cands.extend(search_nasa_videos(query, limit=3))
+    if len(cands) < 2:
+        cands.extend(search_wikimedia_videos(query, limit=5))
+    return cands
+
+
+def _gather_tier2_photo_candidates(query: str) -> list[VideoCandidate]:
+    cands: list[VideoCandidate] = []
+    cands.extend(search_unsplash_portrait(query, per_page=5))
+    cands.extend(search_pixabay_photo(query, per_page=5))
+    if len(cands) < 3:
+        cands.extend(search_openverse_photo(query, limit=4))
+    return cands
+
+
+# === Quota-Safe Contact-Sheet Vision QA (1 Single API Call per Episode) ===
+
+def _extract_midframe_for_sheet(media_path: Path, is_image: bool, out_jpg: Path) -> Optional[Path]:
+    if is_image and media_path.exists():
+        try:
+            im = Image.open(media_path).convert("RGB")
+            im.thumbnail((420, 420))
+            im.save(out_jpg, quality=85)
+            return out_jpg
+        except Exception:
+            return None
+    info = probe_video(media_path)
+    mid = max(0.3, (float(info["duration"]) * 0.45) if info else 1.5)
+    subprocess.run(
+        ["ffmpeg", "-y", "-ss", f"{mid:.2f}", "-i", str(media_path), "-frames:v", "1", "-vf", "scale=420:-2", "-q:v", "4", str(out_jpg)],
+        check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    return out_jpg if out_jpg.exists() else None
+
+
+def _build_batch_contact_sheet(tiles: list[tuple[str, str, Path]], out_jpg: Path) -> Optional[Path]:
+    loaded: list[tuple[str, str, Image.Image]] = []
+    for key, query, p in tiles:
+        if p.exists():
+            im = Image.open(p).convert("RGB")
+            im.thumbnail((360, 360))
+            loaded.append((key, query, im))
+    if not loaded:
+        return None
+    cols = min(3, len(loaded))
+    rows = (len(loaded) + cols - 1) // cols
+    cell_w, cell_h, hdr = 380, 320, 38
+    sheet = Image.new("RGB", (cols * cell_w + 20, rows * (cell_h + hdr) + 20), (16, 20, 30))
+    draw = ImageDraw.Draw(sheet)
+    font = ImageFont.load_default()
+    for i, (key, q, im) in enumerate(loaded):
+        r, c = divmod(i, cols)
+        x = 10 + c * cell_w
+        y = 10 + r * (cell_h + hdr)
+        draw.text((x + 6, y + 6), f"{key.upper()}: {q[:34]}", fill=(255, 224, 92), font=font)
+        # Center image cleanly inside cell
+        scale = min((cell_w - 16) / im.width, (cell_h - 10) / im.height)
+        rw, rh = max(40, int(im.width * scale)), max(40, int(im.height * scale))
+        resized = im.resize((rw, rh), Image.Resampling.LANCZOS)
+        sheet.paste(resized, (x + (cell_w - rw) // 2, y + hdr + (cell_h - rh) // 2))
+    sheet.save(out_jpg, quality=88)
+    return out_jpg
+
+
+class _ShotVerdict(BaseModel):
+    shot_id: str = Field(description="Exact tile label e.g. 'shot_1', 'shot_2'")
+    family_safe: bool
+    has_watermark_or_text_slide: bool = Field(description="True if logo, text banner, presentation slide, university bumper, or stock watermark visible")
+    is_off_topic_scene: bool = Field(description="True if wildly unrelated (e.g. empty parking garage, swimming pool, palm trees, fireworks) vs scene_narration/visual_query")
+    relevance_score: float = Field(ge=0, le=10)
+    reason: str = ""
+
+
+class _BatchContactSheetScreen(BaseModel):
+    verdicts: list[_ShotVerdict]
+
+
+def _batch_vision_screen_sheet(
+    sheet_jpg: Path,
+    shot_payloads: list[dict[str, Any]],
+) -> dict[str, _ShotVerdict]:
+    """Screen all candidate shots in ONE single Vision LLM call (respecting 429 backoff)."""
+    if os.environ.get("ASSET_VISION_SCREEN", "true").lower() != "true":
+        return {}
+    if not (os.environ.get("GEMINI_API_KEY") or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")):
+        return {}
+    try:
+        from src.providers import call_structured_agent
+
+        res = call_structured_agent(
+            provider="auto",
+            model=os.environ.get("GEMINI_SCREEN_MODEL", "gemini-3.5-flash-lite"),
+            system_prompt=(
+                f"You are a calibrated Batch Visual QA Screener for '{get_brand_name()}', an Everyday Sci-Tech Shorts studio. "
+                "Inspect all numbered tiles (`shot_1`, `shot_2`, ...) in the attached contact sheet grid in ONE pass.\n"
+                "Rules:\n"
+                "- Set `has_watermark_or_text_slide: true` if foreign text slides, lecture screens, university bumpers, or big watermarks appear.\n"
+                "- Set `is_off_topic_scene: true` if the visual is blatantly off-topic (e.g. empty parking garage, swimming pool, palm trees for hardware/cells).\n"
+                "- Score `relevance_score` 0-10 honestly: 8-10 for crisp direct subject match, 6-7.4 for plausible real-world context/hardware/lab footage."
+            ),
+            user_payload={"shots": shot_payloads},
+            response_model=_BatchContactSheetScreen,
+            handoff_path=None,
+            image_paths=[sheet_jpg],
+        )
+        return {v.shot_id.strip().lower(): v for v in res.verdicts}
+    except Exception as exc:
+        print(f"[asset_scout] Batch Contact-Sheet Vision QA skipped safely ({exc}); using metadata relevance.")
+        return {}
+
+
 def scout_assets_for_scenes(
     scenes: list[SceneSpec],
     assets_dir: Path,
@@ -917,14 +1167,10 @@ def scout_assets_for_scenes(
     target_scene_ids: Optional[set[str]] = None,
     tried_urls_out: Optional[set[str]] = None,
 ) -> Agent6Output:
-    """Scout real video footage + cached SFX for each scene (supports targeted re-scouting)."""
+    """Scout visuals via 3-Tier Waterfall + 1-Call Contact-Sheet Vision QA (zero hard crashes)."""
     assets_dir.mkdir(parents=True, exist_ok=True)
-    results: list[SceneAsset] = []
     used_urls: set[str] = set(exclude_urls or ())
     used_stems: set[str] = set()
-    max_screens = int(os.environ.get("ASSET_MAX_SCREENS_PER_SCENE", "3"))
-    flow_bank_clips = list_flow_clip_bank()
-    used_flow_ids: set[str] = set()
     try:
         from src.tools.telegram_notify import get_owner_runtime_overrides
 
@@ -933,227 +1179,241 @@ def scout_assets_for_scenes(
         _ro = {}
     force_trans_sfx = bool(_ro.get("force_sfx_every_transition", True))
     force_anim_sfx = bool(_ro.get("force_sfx_every_animation", True))
-    owner_visual_bias = str(_ro.get("visual_style_bias") or "").strip()
-    try:
-        raw_used = memory.get_used_flow_clip_ids()
-        if isinstance(raw_used, set):
-            used_flow_ids = set(raw_used)
-    except Exception:
-        pass
-    episode_id = assets_dir.parent.name if assets_dir.parent else ""
 
     total_scenes = len(scenes)
-    for scene_idx, scene in enumerate(scenes):
-        trans_sfx_path, anim_sfx_path = resolve_scene_sfx_cues(
-            scene_idx=scene_idx,
-            total_scenes=total_scenes,
-            scene=scene,
-            memory=memory,
-            force_transition=force_trans_sfx,
-            force_animation=force_anim_sfx,
-        )
+    selected: dict[int, tuple[VideoCandidate, Path, dict, bool]] = {}
+    unchanged_assets: dict[str, SceneAsset] = {}
+
+    # Pass 1: Gather best Tier 1 video (or fallback Tier 2 photo if Tier 1 empty) per target scene
+    tmp_dir = assets_dir / "_cand_stage"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    for idx, scene in enumerate(scenes):
         if target_scene_ids is not None and scene.scene_id not in target_scene_ids and existing_assets and scene.scene_id in existing_assets:
-            results.append(existing_assets[scene.scene_id])
+            unchanged_assets[scene.scene_id] = existing_assets[scene.scene_id]
             used_urls.add(existing_assets[scene.scene_id].source_url)
             continue
 
-        dest_mp4 = _next_free_path(assets_dir, scene.scene_id)
-        chosen_cand: Optional[VideoCandidate] = None
-        chosen_info: Optional[dict] = None
-        fallback_cand: Optional[VideoCandidate] = None
-        fallback_info: Optional[dict] = None
-        fallback_raw: Optional[Path] = None
-        fallback_meta_score = 0
-        screens_done = 0
-        topic_terms = _extract_scene_topic_terms(scene)
-
         if manual_overrides and scene.scene_id in manual_overrides:
             cand = manual_overrides[scene.scene_id]
-            info = download_and_normalize_clip(cand, dest_mp4)
+            dest = _next_free_path(assets_dir, scene.scene_id)
+            raw_p = tmp_dir / f"{scene.scene_id}_manual.raw"
+            info = _download_raw_clip(cand, raw_p)
             if info:
-                chosen_cand, chosen_info = cand, info
+                selected[idx] = (cand, raw_p, info, False)
+                continue
 
-        if chosen_cand is None and flow_bank_clips:
-            flow_hit = _try_match_flow_bank_clip(
-                scene=scene,
-                flow_clips=flow_bank_clips,
-                used_flow_ids=used_flow_ids,
-                used_urls=used_urls,
-                dest_mp4=dest_mp4,
-                episode_id=episode_id,
-                memory=memory,
+        topic_terms = _extract_scene_topic_terms(scene)
+        queries = [scene.visual_query, *list(scene.fallback_queries)]
+        # Broaden with crisp 2-word anchor query
+        words = [w for w in re.findall(r"[A-Za-z]+", scene.visual_query.lower()) if len(w) >= 3 and w not in _FILLER_AND_ADJECTIVES]
+        if len(words) >= 2:
+            queries.append(" ".join(words[:2]))
+
+        tier1_pool: list[tuple[int, VideoCandidate]] = []
+        for q in queries[:3]:
+            for cand in _gather_tier1_video_candidates(scene, q):
+                if cand.download_url in used_urls or cand.page_url in used_urls:
+                    continue
+                ms = _metadata_relevance_score(cand, scene, topic_terms)
+                if ms < 0:
+                    continue
+                tier1_pool.append((ms, cand))
+            if len([c for m, c in tier1_pool if m >= 1]) >= 2:
+                break
+
+        source_rank = {"coverr": 0, "pixabay": 1, "nasa": 2, "pexels": 3, "wikimedia_commons": 4}
+        tier1_pool.sort(
+            key=lambda pr: (
+                -pr[0],
+                0 if pr[1].height > pr[1].width else 1,  # prioritize portrait assets!
+                source_rank.get(pr[1].source, 9),
+                -min(pr[1].width, 1920),
             )
-            if flow_hit:
-                chosen_cand, chosen_info = flow_hit
+        )
 
-        if chosen_cand is None:
-            raw_queries = [scene.visual_query] + list(scene.fallback_queries)
-            if owner_visual_bias:
-                raw_queries = [f"{scene.visual_query} {owner_visual_bias}"] + raw_queries
-            broadened: list[str] = []
-            noun_anchors: list[str] = []
-            for q in raw_queries:
-                words = [w for w in re.findall(r"[A-Za-z]+", q.lower()) if len(w) >= 3 and w not in _FILLER_AND_ADJECTIVES]
-                if len(words) >= 2:
-                    broadened.append(" ".join(words[:2]))
-                    broadened.append(" ".join(words[-2:]))
-                for w in words:
-                    if w in _DOMAIN_SYNONYMS and w not in noun_anchors:
-                        noun_anchors.append(w)
+        picked = None
+        for ms, cand in tier1_pool[:4]:
+            stem = cand.title.lower()[:32]
+            if stem in used_stems or cand.download_url in used_urls:
+                continue
+            raw_p = tmp_dir / f"{scene.scene_id}_t1.raw"
+            used_urls.add(cand.download_url)
+            used_urls.add(cand.page_url)
+            info = _download_raw_clip(cand, raw_p)
+            if info:
+                used_stems.add(stem)
+                picked = (cand, raw_p, info, False)
+                break
 
-            scene_text_blob = " ".join([scene.visual_query, *scene.fallback_queries, scene.narration or ""]).lower()
-            is_gadget_or_home = bool(
-                re.search(
-                    r"\b(?:phone|smartphone|screen|oled|battery|charger|earbuds|watch|camera|"
-                    r"microwave|fridge|stove|cooktop|pan|kitchen|car|ev|bridge|elevator|traffic|road|glass|"
-                    r"plastic|solar|wind|airplane|vr|headset|sensor|chip|circuit|laptop|payment)\b",
-                    scene_text_blob,
-                )
-            )
-            if is_gadget_or_home:
-                generic_fallbacks = [
-                    "smartphone technology closeup",
-                    "circuit board microchip macro",
-                    "modern kitchen cooking pan",
-                    "electric car city driving",
-                    "engineering laboratory testing",
-                ]
-            else:
-                generic_fallbacks = [
-                    "physics laboratory experiment",
-                    "engineering workshop prototype",
-                    "electronic circuit macro",
-                    "solar panels clean energy",
-                    "science laboratory glassware",
-                ]
-
-            seen_q: set[str] = set()
-            queries: list[str] = []
-            for q in [*raw_queries, *broadened, *noun_anchors[:2], *generic_fallbacks]:
-                q_norm = q.strip()
-                if q_norm and q_norm.lower() not in seen_q:
-                    seen_q.add(q_norm.lower())
-                    queries.append(q_norm)
-
-            source_rank = {"pexels": 0, "pixabay": 1, "wikimedia": 2, "nasa": 3}
-            for q in queries:
-                stock_cands = search_pexels(q, orientation="portrait") + search_pixabay(q)
-                if len(stock_cands) < 3:
-                    stock_cands += search_pexels(q, orientation="landscape")
-                is_generic_q = q in generic_fallbacks
-                wiki_cands = search_wikimedia_videos(q) if (len(stock_cands) < 3 or is_generic_q) else []
-                q_terms = [w for w in re.findall(r"[a-z]+", q.lower()) if len(w) >= 3 and w not in _FILLER_AND_ADJECTIVES]
-                if wiki_cands and not is_generic_q and q_terms:
-                    matched_wiki = [
-                        wc for wc in wiki_cands
-                        if any(t in wc.title.lower() for t in q_terms)
-                    ]
-                    wiki_cands = matched_wiki
-                nasa_cands = (
-                    search_nasa_videos(q, limit=3)
-                    if (not is_gadget_or_home and len(stock_cands) < 2 and len(wiki_cands) < 2)
-                    else []
-                )
-                cands = stock_cands + wiki_cands + nasa_cands
-                scored_cands: list[tuple[int, VideoCandidate]] = []
-                for cand in cands:
-                    m_score = _metadata_relevance_score(cand, scene, topic_terms)
-                    if m_score < 0:
+        if picked is None:
+            # Escalate immediately to Tier 2 (Portrait Photo + Ken Burns)
+            tier2_pool: list[tuple[int, VideoCandidate]] = []
+            for q in queries[:2]:
+                for cand in _gather_tier2_photo_candidates(q):
+                    if cand.download_url in used_urls:
                         continue
-                    # On specific queries, skip completely un-tagged / 0-overlap Pixabay hits BEFORE spending Vision quota!
-                    if not is_generic_q and m_score == 0 and cand.source == "pixabay":
-                        continue
-                    scored_cands.append((m_score, cand))
-
-                scored_cands.sort(
-                    key=lambda pair: (
-                        -pair[0],
-                        source_rank.get(pair[1].source, 9),
-                        0 if pair[1].width >= 720 else 1,
-                        -min(pair[1].width, 1920),
-                    )
-                )
-
-                per_query_screens = 0
-                for m_score, cand in scored_cands:
-                    stem = cand.title.lower()[:32]
-                    if cand.download_url in used_urls or cand.page_url in used_urls or stem in used_stems:
-                        continue
-                    if screens_done >= max_screens or per_query_screens >= 2:
-                        break
-                    raw_path = dest_mp4.with_suffix(".raw_dl")
-                    raw_info = _download_raw_clip(cand, raw_path)
-                    used_urls.add(cand.download_url)
-                    used_urls.add(cand.page_url)
-                    used_stems.add(stem)
-                    if not raw_info:
-                        continue
-                    screens_done += 1
-                    per_query_screens += 1
-                    ok, clean, reason = vision_screen_clip(raw_path, scene)
-                    is_rate_limit = "rate-limit" in reason.lower()
-                    print(f"[asset_scout] {scene.scene_id} screen (meta={m_score}) '{cand.title[:56]}': ok={ok} ({reason[:145]})")
-                    # If Vision API was temporarily rate-limited BUT metadata strongly matches scene keywords (>=2), accept cleanly!
-                    if not ok and is_rate_limit and m_score >= 2:
-                        ok = True
-                        print(f"[asset_scout] {scene.scene_id}: promoted strong lexical match (meta={m_score}) during Vision 429")
-                    if ok:
-                        chosen_info = _transcode_to_mp4(raw_path, raw_info, dest_mp4)
-                        if chosen_info:
-                            chosen_cand = cand
-                            if fallback_raw is not None:
-                                fallback_raw.unlink(missing_ok=True)
-                                fallback_raw = None
-                            break
-                        continue
-                    # Keep fallback only if lexical match exists OR Vision itself verified clean on a generic tech/lab query
-                    eligible_fb = clean and (m_score >= 1 or (not is_rate_limit and is_generic_q))
-                    if eligible_fb and (fallback_cand is None or m_score > fallback_meta_score):
-                        if fallback_raw is not None:
-                            fallback_raw.unlink(missing_ok=True)
-                        fb_raw = dest_mp4.with_name(f"{dest_mp4.stem}_fb.raw")
-                        raw_path.replace(fb_raw)
-                        fallback_cand, fallback_info, fallback_raw, fallback_meta_score = cand, raw_info, fb_raw, m_score
-                    else:
-                        raw_path.unlink(missing_ok=True)
-                if chosen_cand or screens_done >= max_screens:
+                    ms = _metadata_relevance_score(cand, scene, topic_terms)
+                    if ms >= 0:
+                        tier2_pool.append((ms, cand))
+            tier2_pool.sort(key=lambda pr: (-pr[0], 0 if pr[1].source == "unsplash" else 1))
+            for ms, cand in tier2_pool[:3]:
+                raw_p = tmp_dir / f"{scene.scene_id}_t2.jpg"
+                used_urls.add(cand.download_url)
+                info = _download_raw_clip(cand, raw_p)
+                if info:
+                    if cand.source == "unsplash":
+                        _trigger_unsplash_download(cand)
+                    picked = (cand, raw_p, info, True)
                     break
 
-            if chosen_cand is None and fallback_cand is not None and fallback_raw is not None:
-                norm_info = _transcode_to_mp4(fallback_raw, fallback_info or {}, dest_mp4)
-                if norm_info:
-                    chosen_cand, chosen_info = fallback_cand, norm_info
-                    print(f"[asset_scout] {scene.scene_id}: memakai fallback aman (meta={fallback_meta_score})")
+        if picked is not None:
+            selected[idx] = picked
 
-        if fallback_raw is not None and fallback_raw.exists():
-            fallback_raw.unlink(missing_ok=True)
+    # Pass 2: Build 1 single Contact-Sheet grid for ALL candidate shots & validate in ONE Vision API call!
+    tiles: list[tuple[str, str, Path]] = []
+    payloads: list[dict[str, Any]] = []
+    idx_to_shot_id: dict[int, str] = {}
 
-        if (chosen_cand is None or chosen_info is None) and existing_assets and scene.scene_id in existing_assets:
-            print(f"[asset_scout] {scene.scene_id}: tidak ada pengganti yang lolos screening; memakai footage sebelumnya")
-            results.append(existing_assets[scene.scene_id])
+    for idx in sorted(selected.keys()):
+        cand, raw_p, info, is_img = selected[idx]
+        shot_id = f"shot_{idx + 1}"
+        idx_to_shot_id[idx] = shot_id
+        tile_jpg = tmp_dir / f"{shot_id}_tile.jpg"
+        if _extract_midframe_for_sheet(raw_p, is_img, tile_jpg):
+            tiles.append((shot_id, scenes[idx].visual_query, tile_jpg))
+            payloads.append({
+                "shot_id": shot_id,
+                "is_hook_shot": idx == 0,
+                "visual_query": scenes[idx].visual_query,
+                "scene_narration": scenes[idx].narration[:140],
+                "candidate_title": cand.title[:70],
+            })
+
+    verdicts: dict[str, _ShotVerdict] = {}
+    if tiles:
+        sheet_jpg = tmp_dir / "batch_contact_sheet.jpg"
+        if _build_batch_contact_sheet(tiles, sheet_jpg):
+            verdicts = _batch_vision_screen_sheet(sheet_jpg, payloads)
+            print(f"[asset_scout] Batch Contact-Sheet Vision QA checked {len(tiles)} shot(s) in 1 API call.")
+
+    # Pass 3: Enforce Shot #1 (>= 7.5) & Shot #2..N (>= 6.0); seamlessly escalate failed shots Tier 1 -> Tier 2 -> Tier 3
+    results: list[SceneAsset] = []
+    for idx, scene in enumerate(scenes):
+        trans_sfx_path, anim_sfx_path = resolve_scene_sfx_cues(
+            scene_idx=idx, total_scenes=total_scenes, scene=scene, memory=memory,
+            force_transition=force_trans_sfx, force_animation=force_anim_sfx,
+        )
+        if scene.scene_id in unchanged_assets:
+            results.append(unchanged_assets[scene.scene_id])
             continue
 
-        if chosen_cand is None or chosen_info is None:
-            raise RuntimeError(
-                f"Agent 6 could not find real video footage for {scene.scene_id} "
-                f"(queries: {[scene.visual_query] + list(scene.fallback_queries)})"
-            )
+        dest_mp4 = _next_free_path(assets_dir, scene.scene_id)
+        min_req = 7.5 if idx == 0 else 6.0
+        needs_escalation = idx not in selected
 
+        if idx in selected:
+            cand, raw_p, info, is_img = selected[idx]
+            sid = idx_to_shot_id.get(idx, f"shot_{idx + 1}")
+            v = verdicts.get(sid)
+            if v is not None:
+                passed = (
+                    v.family_safe
+                    and not v.has_watermark_or_text_slide
+                    and not v.is_off_topic_scene
+                    and v.relevance_score >= min_req
+                )
+                print(
+                    f"[asset_scout] {scene.scene_id} ({sid}, min={min_req}): rel={v.relevance_score} "
+                    f"safe={v.family_safe} wm={v.has_watermark_or_text_slide} off={v.is_off_topic_scene} -> {'PASS' if passed else 'ESCALATE'}"
+                )
+                if not passed:
+                    raw_p.unlink(missing_ok=True)
+                    needs_escalation = True
+
+        final_cand: Optional[VideoCandidate] = None
+        final_info: Optional[dict] = None
+
+        if not needs_escalation and idx in selected:
+            cand, raw_p, info, is_img = selected[idx]
+            if is_img:
+                final_info = _render_image_to_ken_burns_mp4(raw_p, dest_mp4, duration_sec=8.0, motion=scene.motion)
+                raw_p.unlink(missing_ok=True)
+            else:
+                final_info = _transcode_to_mp4(raw_p, info, dest_mp4, trim_ends_sec=2.0 if cand.needs_trim_ends else 0.0)
+            if final_info:
+                final_cand = cand
+
+        # Escalate failed Tier 1 -> Tier 2 Portrait Photo + Ken Burns
+        if final_cand is None:
+            topic_terms = _extract_scene_topic_terms(scene)
+            fb_q = (scene.fallback_queries[0] if scene.fallback_queries else scene.visual_query)
+            if idx in selected and not selected[idx][3]:  # previously tried video, now try portrait photo
+                t2_list = _gather_tier2_photo_candidates(scene.visual_query) or _gather_tier2_photo_candidates(fb_q)
+                t2_list = [c for c in t2_list if _metadata_relevance_score(c, scene, topic_terms) >= 0 and c.download_url not in used_urls]
+                for t2c in t2_list[:2]:
+                    img_p = tmp_dir / f"{scene.scene_id}_esc_t2.jpg"
+                    used_urls.add(t2c.download_url)
+                    if _download_raw_clip(t2c, img_p):
+                        if t2c.source == "unsplash":
+                            _trigger_unsplash_download(t2c)
+                        k_info = _render_image_to_ken_burns_mp4(img_p, dest_mp4, duration_sec=8.0, motion=scene.motion)
+                        img_p.unlink(missing_ok=True)
+                        if k_info:
+                            final_cand, final_info = t2c, k_info
+                            print(f"[asset_scout] {scene.scene_id}: escalated cleanly to Tier 2 Photo + Ken Burns ({t2c.source})")
+                            break
+
+        # Final Escalation -> Tier 3 AI-Generated 9:16 Scene + Ken Burns (Zero Hard-Crash Policy!)
+        if final_cand is None:
+            ai_img = tmp_dir / f"{scene.scene_id}_tier3_ai.jpg"
+            gen_model = _generate_ai_scene_image(scene, ai_img)
+            if not gen_model or not ai_img.exists():
+                _draw_zero_crash_optical_backdrop(ai_img)
+                gen_model = "optical_studio_backdrop"
+            k_info = _render_image_to_ken_burns_mp4(ai_img, dest_mp4, duration_sec=8.0, motion=scene.motion)
+            ai_img.unlink(missing_ok=True)
+            if not k_info:
+                raise RuntimeError(f"FFmpeg Ken Burns failed unexpectedly for {scene.scene_id}")
+            final_cand = VideoCandidate(
+                source=gen_model,
+                title=f"AI 9:16 Scene ({gen_model}) - {scene.visual_query}"[:120],
+                download_url=f"ai://{gen_model}/{scene.scene_id}",
+                page_url=f"ai://{gen_model}/{scene.scene_id}",
+                license="AI-Generated Studio Visual (Zero Copyright)",
+                duration_sec=float(k_info.get("duration") or 8.0),
+                width=1080,
+                height=1920,
+                tier="tier_3_ai_scene_ken_burns",
+            )
+            final_info = k_info
+            print(f"[asset_scout] {scene.scene_id}: resolved cleanly via Tier 3 ({gen_model}) + Ken Burns")
+
+        assert final_cand is not None and final_info is not None
         results.append(
             SceneAsset(
                 scene_id=scene.scene_id,
                 footage_path=str(dest_mp4),
-                source=chosen_cand.source,
-                source_url=chosen_cand.page_url,
-                license=chosen_cand.license,
-                duration_sec=round(chosen_info["duration"], 2),
-                width=chosen_info["width"],
-                height=chosen_info["height"],
+                source=final_cand.source,
+                source_url=final_cand.page_url,
+                license=final_cand.license,
+                duration_sec=round(float(final_info["duration"]), 2),
+                width=int(final_info["width"]),
+                height=int(final_info["height"]),
+                footage_tier=final_cand.tier,
                 sfx_path=trans_sfx_path,
                 animation_sfx_path=anim_sfx_path,
-                notes=chosen_cand.title,
+                notes=final_cand.title,
             )
         )
+
+    # Cleanup temp staging dir
+    try:
+        for leftover in tmp_dir.glob("*"):
+            leftover.unlink(missing_ok=True)
+        tmp_dir.rmdir()
+    except Exception:
+        pass
 
     if tried_urls_out is not None:
         tried_urls_out.update(used_urls)

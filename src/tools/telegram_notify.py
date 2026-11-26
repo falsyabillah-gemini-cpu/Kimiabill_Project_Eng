@@ -58,7 +58,11 @@ def _api_url(token: str, method: str) -> str:
     return f"https://api.telegram.org/bot{token}/{method}"
 
 
-def send_telegram_message(text: str, chat_id_override: Optional[str] = None) -> bool:
+def send_telegram_message(
+    text: str,
+    chat_id_override: Optional[str] = None,
+    reply_markup: Optional[dict[str, Any]] = None,
+) -> bool:
     """Send plain-text Telegram message(s), splitting cleanly below Telegram's 4096-char limit."""
     token, default_chat = _bot_creds()
     chat_id = (chat_id_override or default_chat).strip()
@@ -80,17 +84,16 @@ def send_telegram_message(text: str, chat_id_override: Optional[str] = None) -> 
         chunks.append(remaining)
 
     ok_all = True
-    for chunk in chunks:
+    for idx, chunk in enumerate(chunks):
         try:
-            resp = requests.post(
-                _api_url(token, "sendMessage"),
-                json={
-                    "chat_id": chat_id,
-                    "text": chunk,
-                    "disable_web_page_preview": False,
-                },
-                timeout=25,
-            )
+            payload: dict[str, Any] = {
+                "chat_id": chat_id,
+                "text": chunk,
+                "disable_web_page_preview": False,
+            }
+            if reply_markup and idx == len(chunks) - 1:
+                payload["reply_markup"] = reply_markup
+            resp = requests.post(_api_url(token, "sendMessage"), json=payload, timeout=25)
             data = resp.json() if resp.status_code == 200 else {}
             if not data.get("ok"):
                 ok_all = False
@@ -105,39 +108,200 @@ def send_telegram_video(
     mp4_path: Path,
     caption: str = "",
     chat_id_override: Optional[str] = None,
+    reply_markup: Optional[dict[str, Any]] = None,
 ) -> bool:
-    """Upload MP4 video directly to Telegram chat (<= 48 MB), falling back to message if oversized."""
+    """Upload MP4 video directly to Telegram chat (< 45 MB), falling back to message if oversized."""
     token, default_chat = _bot_creds()
     chat_id = (chat_id_override or default_chat).strip()
     if not token or not chat_id:
         return False
     if not mp4_path.exists():
-        return send_telegram_message(caption, chat_id_override=chat_id) if caption else False
+        return send_telegram_message(caption, chat_id_override=chat_id, reply_markup=reply_markup) if caption else False
     size_mb = mp4_path.stat().st_size / (1024 * 1024)
-    if size_mb > 48.0:
-        print(f"[telegram] Video {mp4_path.name} ({size_mb:.1f} MB > 48 MB); sending message link only.")
-        return send_telegram_message(caption, chat_id_override=chat_id)
+    if size_mb > 45.0:
+        print(f"[telegram] Video {mp4_path.name} ({size_mb:.1f} MB > 45 MB); sending fallback.")
+        return False
 
     short_cap = (caption or "").strip()[:980]
+    post_data: dict[str, Any] = {
+        "chat_id": chat_id,
+        "caption": short_cap,
+        "supports_streaming": "true",
+    }
+    if reply_markup:
+        post_data["reply_markup"] = json.dumps(reply_markup)
     try:
         with mp4_path.open("rb") as fh:
             resp = requests.post(
                 _api_url(token, "sendVideo"),
-                data={
-                    "chat_id": chat_id,
-                    "caption": short_cap,
-                    "supports_streaming": "true",
-                },
+                data=post_data,
                 files={"video": (mp4_path.name, fh, "video/mp4")},
                 timeout=120,
             )
         data = resp.json() if resp.status_code == 200 else {}
         if data.get("ok"):
             return True
-        print(f"[telegram] sendVideo failed ({resp.status_code}): {resp.text[:160]}; fallback to sendMessage.")
+        print(f"[telegram] sendVideo failed ({resp.status_code}): {resp.text[:160]}")
     except Exception as exc:
-        print(f"[telegram] sendVideo error: {exc}; fallback to sendMessage.")
-    return send_telegram_message(caption, chat_id_override=chat_id) if caption else False
+        print(f"[telegram] sendVideo error: {exc}")
+    return False
+
+
+def _build_2x2_collage(video_path: Path, out_jpg: Path) -> Optional[Path]:
+    """Extract 4 evenly spaced frames into a 2x2 keyframe collage if MP4 >= 45 MB."""
+    import subprocess
+    from PIL import Image
+
+    if not video_path.exists():
+        return None
+    try:
+        dur_raw = subprocess.check_output(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)],
+            text=True,
+        ).strip()
+        dur = max(2.0, float(dur_raw))
+    except Exception:
+        dur = 30.0
+    frames: list[Image.Image] = []
+    for i, frac in enumerate((0.12, 0.38, 0.65, 0.90)):
+        fp = out_jpg.with_name(f"_col_{i}.jpg")
+        subprocess.run(
+            ["ffmpeg", "-y", "-ss", f"{dur * frac:.2f}", "-i", str(video_path), "-frames:v", "1", "-vf", "scale=540:-2", "-q:v", "3", str(fp)],
+            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        if fp.exists():
+            frames.append(Image.open(fp).convert("RGB"))
+            fp.unlink(missing_ok=True)
+    if not frames:
+        return None
+    w, h = frames[0].size
+    collage = Image.new("RGB", (w * 2 + 12, h * 2 + 12), (14, 20, 36))
+    for i, im in enumerate(frames[:4]):
+        r, c = divmod(i, 2)
+        collage.paste(im.resize((w, h)), (4 + c * (w + 4), 4 + r * (h + 4)))
+    collage.save(out_jpg, quality=88)
+    return out_jpg
+
+
+def disable_audit_keyboard(message_id: Optional[int], status_label: str) -> None:
+    """Lock inline keyboard buttons once owner or AI Chief Editor acts on an episode."""
+    if not message_id:
+        return
+    token, chat_id = _bot_creds()
+    if not token or not chat_id:
+        return
+    try:
+        requests.post(
+            _api_url(token, "editMessageReplyMarkup"),
+            json={
+                "chat_id": chat_id,
+                "message_id": int(message_id),
+                "reply_markup": {"inline_keyboard": [[{"text": status_label[:48], "callback_data": "noop"}]]},
+            },
+            timeout=15,
+        )
+    except Exception:
+        pass
+
+
+def send_interactive_audit_message(
+    entry: dict[str, Any],
+    video_path: Optional[Path] = None,
+) -> Optional[int]:
+    """Send 4-button Interactive Telegram Audit Card (MP4 <45MB else 2x2 collage) + return message_id."""
+    token, chat_id = _bot_creds()
+    if not token or not chat_id:
+        return None
+
+    ep_id = str(entry.get("episode_id") or "")
+    slot = str(entry.get("slot") or "slot_2100")
+    pub_label = "21:00 WIB / 09:00 EST" if slot == "slot_2100" else "04:00 WIB / 16:00 EST (next morning)"
+    brand = get_brand_name()
+
+    caption = "\n".join([
+        f"🔎 [{brand}] AUDIT DRAFT READY",
+        f"• Title: {entry.get('topic_title')}",
+        f"• Pillar: {entry.get('pillar')} | Dur: {entry.get('duration_sec', 0):.1f}s | Rev: {entry.get('revision_count', 0)}",
+        f"• TTS Engine: {entry.get('tts_engine', 'Edge-TTS')}",
+        f"• Footage: {entry.get('footage_tier_summary') or 'Tier 1'}",
+        f"• Pre-QA: {entry.get('qa_summary') or '-'}",
+        f"• Source: {str(entry.get('source_url') or 'Verified Sci-Tech Reference')[:90]}",
+        f"• Unlisted YT: {entry.get('youtube_url') or '-'}",
+        f"• Pro Drive: {entry.get('drive_url') or '-'}",
+        f"• Target Publish: {pub_label}",
+    ])[:980]
+
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {"text": "✅ Approve & Schedule", "callback_data": f"approve:{ep_id}"},
+                {"text": "🔄 Revise Video", "callback_data": f"revise:{ep_id}"},
+            ],
+            [
+                {"text": "❌ Reject & Next Topic", "callback_data": f"reject:{ep_id}"},
+                {"text": "🤖 Delegate to AI", "callback_data": f"ai_audit:{ep_id}"},
+            ],
+        ]
+    }
+
+    # 1. Try sending MP4 directly (< 45 MB)
+    if video_path and video_path.exists() and (video_path.stat().st_size / (1024 * 1024)) < 45.0:
+        try:
+            with video_path.open("rb") as fh:
+                resp = requests.post(
+                    _api_url(token, "sendVideo"),
+                    data={
+                        "chat_id": chat_id,
+                        "caption": caption,
+                        "supports_streaming": "true",
+                        "reply_markup": json.dumps(keyboard),
+                    },
+                    files={"video": (video_path.name, fh, "video/mp4")},
+                    timeout=120,
+                )
+            data = resp.json() if resp.status_code == 200 else {}
+            if data.get("ok"):
+                return int((data.get("result") or {}).get("message_id") or 0) or None
+        except Exception as exc:
+            print(f"[telegram] sendVideo audit failed ({exc}); falling back to 2x2 collage.")
+
+    # 2. Fallback: 2x2 Keyframe Collage if MP4 >= 45 MB or video send failed
+    if video_path and video_path.exists():
+        col_jpg = video_path.with_name(f"{video_path.stem}_collage.jpg")
+        if _build_2x2_collage(video_path, col_jpg):
+            try:
+                with col_jpg.open("rb") as fh:
+                    resp = requests.post(
+                        _api_url(token, "sendPhoto"),
+                        data={
+                            "chat_id": chat_id,
+                            "caption": caption,
+                            "reply_markup": json.dumps(keyboard),
+                        },
+                        files={"photo": (col_jpg.name, fh, "image/jpeg")},
+                        timeout=60,
+                    )
+                data = resp.json() if resp.status_code == 200 else {}
+                if data.get("ok"):
+                    return int((data.get("result") or {}).get("message_id") or 0) or None
+            except Exception as exc:
+                print(f"[telegram] sendPhoto collage failed ({exc})")
+            finally:
+                col_jpg.unlink(missing_ok=True)
+
+    # 3. Last-resort text card with inline keyboard
+    try:
+        resp = requests.post(
+            _api_url(token, "sendMessage"),
+            json={"chat_id": chat_id, "text": caption, "reply_markup": keyboard},
+            timeout=25,
+        )
+        data = resp.json() if resp.status_code == 200 else {}
+        if data.get("ok"):
+            return int((data.get("result") or {}).get("message_id") or 0) or None
+    except Exception:
+        pass
+    return None
 
 
 def send_telegram_document(

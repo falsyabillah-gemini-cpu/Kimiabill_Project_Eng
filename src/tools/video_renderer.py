@@ -501,8 +501,8 @@ def _build_contact_sheet(
         for seg in segments
     ]
     if segments:
-        end_t = max(0.0, segments[-1].end_sec - 0.9)
-        samples.append(("zz_endcard", end_t, f"END-CARD ({end_t:.1f}s)"))
+        end_t = max(0.0, segments[-1].end_sec - 0.6)
+        samples.append(("zz_final", end_t, f"FINAL CTA ({end_t:.1f}s)"))
     for key, mid, label in samples:
         frame_p = tmp_dir / f"{key}.jpg"
         subprocess.run(

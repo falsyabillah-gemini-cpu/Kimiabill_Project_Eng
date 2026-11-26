@@ -1,11 +1,19 @@
 # Central Brand Configuration
-# NOTE: If you change the channel name/handle later, update `name` and `handle` below
-# and run: python -m src.tools.brand_assets
+# NOTE: If you change the channel name/handle later, update fields below
+# and run: python -m src.tools.brand_assets --branding-kit
 
 brand:
   name: "Bill_Explains"
-  handle: "@bill_explains"
+  brand_display_name: "Bill_Explains"
+  brand_handle: "@Bill_explains12"
+  brand_spoken_name: "Bill Explains"
+  handle: "@Bill_explains12"
   tagline: "EVERYDAY SCI & TECH"
+  youtube_cta: "Subscribe to Bill Explains"
+  platform_ctas:
+    youtube_shorts: "Subscribe to Bill Explains"
+    tiktok: "Follow Bill Explains"
+    instagram_reels: "Follow Bill Explains"
   language: "en"
   gdrive_root_folder: "EverydaySciTech_Studio"
   niche: "Everyday science and applied technology (gadgets, home & urban engineering, materials, transport & energy, bio-sensors) explained clearly for a global audience"
@@ -21,18 +29,19 @@ brand:
     min_viral_matches: 2
     fallback_source: "data/idea_bank.json"
     balance_disciplines: true
-  audience: "Global English-speaking YouTube Shorts/Reels/TikTok viewers curious about how everyday technology and science work around them"
+  audience: "Global English-speaking YouTube Shorts viewers curious about how everyday technology and science work around them"
   tone:
     - "Curious, witty, energetic, and friendly — never dry or textbook-heavy"
     - "Natural conversational US/Global English"
     - "Use vivid everyday analogies instead of unexplained technical jargon"
 
 schedule:
-  # 2 videos/day timed for global international prime-time (US/EU peak)
-  # and intentionally offset from Kimiabill (12:00 / 19:00 WIB) to avoid Gemini API rate-limit collisions.
+  # Human-friendly evening WIB audit windows, strictly offset from Kimiabill (17:00-18:30 WIB).
+  # Slot 1 publishes 21:00 WIB (09:00 EST / 14:00 UTC); drafted 19:30 WIB, reminder 20:30, AI fallback 20:45.
+  # Slot 2 publishes 04:00 WIB next day (16:00 EST), active when DAILY_VIDEO_COUNT=2; drafted 20:15 WIB evening before.
   daily_slots_wib:
-    - "04:00"  # 16:00 EST (US afternoon / evening peak)
-    - "21:00"  # 09:00 EST / 14:00 UTC (EU afternoon & US morning peak)
+    - "21:00"
+    - "04:00"
   weekend_section: "TECH_RADAR"
   weekday_section: "EVERYDAY_TECH"
 
@@ -42,13 +51,13 @@ video:
   proxy_fps: 15
   final_resolution: [1080, 1920]
   final_fps: 30
-  target_duration_sec: [38, 56]
+  target_duration_sec: [30, 46]
   visual_policy:
     real_footage_only: true
     no_full_animation: true
     mechanistic_overlay: true
     overlay_style: "comic_science_hybrid"
-    overlay_policy: "Real footage as base + crisp 30fps mechanistic diagram/circuit/physics overlay to reveal what happens inside everyday tech"
+    overlay_policy: "Full-bleed 9:16 3-tier visual waterfall (stock video / Ken Burns photo / 9:16 AI scene) + 30fps English-only mechanistic diagram cards"
   mascot:
     enabled: true
     style: "option_b_duo"
@@ -64,9 +73,9 @@ voice:
   engine: "edge_tts"
   voice_name: "en-US-AndrewNeural"
   style_notes: "Warm, articulate, energetic young-adult male narrator — crisp pronunciation, upbeat Shorts pacing"
-  rate: "+2%"
+  rate: "+3%"
   pitch: "+2Hz"
-  target_wpm: [145, 175]
+  target_wpm: [150, 178]
 
 audio_mix:
   voice_lufs: -15.0
@@ -74,17 +83,16 @@ audio_mix:
   bgm_gain_db: -24.0
 
 publishing:
-  default_mode: "public"   # "dry_run" | "draft" (YouTube Unlisted) | "public"
+  # Hard policy: automated pipelines ALWAYS upload to YouTube as 'unlisted' first;
+  # privacy transitions to 'private'+publishAt or 'public' only after owner or AI Chief Editor approval.
+  default_mode: "draft"
   platforms:
     - "youtube_shorts"
-    # Enable when ready:
-    # - "tiktok"
-    # - "instagram_reels"
   generate_thumbnail: true
   tracking_sheet_id: ""
 
 guardrails:
-  max_revisions: 3
+  max_revisions: 2
   max_topic_attempts: 3
   min_idea_score: 7.5
-  min_qa_score: 8.0
+  min_qa_score: 7.5

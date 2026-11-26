@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "handle_replacements": {
+    "@Bill_explains12": "Bill Explains",
+    "@bill_explains": "Bill Explains",
+    "Bill_Explains": "Bill Explains",
+    "Bill_explains12": "Bill Explains"
+  },
+  "exact_phrases": {
+    "photoplethysmography": "photo-pleth-iz-mog-raphy",
+    "photoplethysmogram": "photo-pleth-iz-mo-gram",
+    "piezoelectric": "pee-ay-zo-electric",
+    "triboelectric": "try-bo-electric",
+    "thermoelectric": "thermo-electric",
+    "ferroelectric": "ferro-electric",
+    "electroluminescence": "electro-luminescence",
+    "chemiluminescence": "chemi-luminescence",
+    "polytetrafluoroethylene": "poly-tetra-fluoro-ethylene",
+    "cyanoacrylate": "sigh-anno-ack-rih-late",
+    "borosilicate": "boro-silicate",
+    "aluminosilicate": "alumino-silicate",
+    "superhydrophobic": "super-hydro-phobic",
+    "nanoparticles": "nano-particles",
+    "nano-particles": "nano-particles",
+    "semiconductor": "semi-conductor",
+    "microcontroller": "micro-controller",
+    "magnetometer": "mag-neh-tom-eter",
+    "accelerometer": "ack-seller-om-eter",
+    "OLED": "oh-led",
+    "AMOLED": "am-oh-led",
+    "QLED": "queue-led",
+    "MEMS": "mems",
+    "CMOS": "see-moss",
+    "MOSFET": "moss-fet",
+    "Li-ion": "lithium ion",
+    "LiFePO4": "lithium iron phosphate",
+    "NaCl": "sodium chloride",
+    "PTFE": "P-T-F-E",
+    "LED": "L-E-D",
+    "LCD": "L-C-D",
+    "NFC": "N-F-C",
+    "RFID": "R-F-I-D",
+    "USB": "U-S-B",
+    "CPU": "C-P-U",
+    "GPU": "G-P-U",
+    "RAM": "ram",
+    "SSD": "S-S-D",
+    "ANC": "A-N-C",
+    "PPG": "P-P-G",
+    "UV": "U-V",
+    "IR": "I-R",
+    "RF": "R-F",
+    "AC": "A-C",
+    "DC": "D-C",
+    "EV": "E-V",
+    "AI": "A-I",
+    "DNA": "D-N-A",
+    "RNA": "R-N-A",
+    "mRNA": "M-R-N-A",
+    "CO2": "C-O-2",
+    "H2O": "H-2-O",
+    "O2": "O-2",
+    "SiC": "silicon carbide",
+    "GaN": "gallium nitride",
+    "ITO": "I-T-O",
+    "DIY": "D-I-Y",
+    "FPS": "F-P-S",
+    "DPI": "D-P-I",
+    "RPM": "R-P-M"
+  },
+  "unit_patterns": [
+    {
+      "pattern": "(\\d+(?:\\.\\d+)?)\\s*mAh\\b",
+      "replacement": "\\1 milliamp hours"
+    },
+    {
+      "pattern": "(\\d+(?:\\.\\d+)?)\\s*kWh\\b",
+      "replacement": "\\1 kilowatt hours"
+    },
+    {
+      "pattern": "(\\d+(?:\\.\\d+)?)\\s*MHz\\b",
+      "replacement": "\\1 megahertz"
+    },
+    {
+      "pattern": "(\\d+(?:\\.\\d+)?)\\s*GHz\\b",
+      "replacement": "\\1 gigahertz"
+    },
+    {
+      "pattern": "(\\d+(?:\\.\\d+)?)\\s*Hz\\b",
+      "replacement": "\\1 hertz"
+    },
+    {
+      "pattern": "(\\d+(?:\\.\\d+)?)\\s*nm\\b",
+      "replacement": "\\1 nanometers"
+    },
+    {
+      "pattern": "(\\d+(?:\\.\\d+)?)\\s*µm\\b",
+      "replacement": "\\1 micrometers"
+    },
+    {
+      "pattern": "(\\d+(?:\\.\\d+)?)\\s*mm\\b",
+      "replacement": "\\1 millimeters"
+    },
+    {
+      "pattern": "(\\d+(?:\\.\\d+)?)\\s*°C\\b",
+      "replacement": "\\1 degrees Celsius"
+    },
+    {
+      "pattern": "(\\d+(?:\\.\\d+)?)\\s*°F\\b",
+      "replacement": "\\1 degrees Fahrenheit"
+    }
+  ]
+}

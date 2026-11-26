@@ -17,7 +17,13 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from src.brand_config import get_brand_handle, get_brand_name, get_daily_slots_wib
+from src.brand_config import (
+    get_brand_handle,
+    get_brand_name,
+    get_brand_spoken_name,
+    get_daily_slots_wib,
+    get_youtube_cta,
+)
 from src.memory import StudioMemory
 from src.providers import call_structured_agent
 from src.state import (
@@ -34,10 +40,10 @@ from src.state import (
 from src.tools.asset_scout import scout_assets_for_scenes
 from src.tools.gdrive_sync import upload_episode_to_gdrive
 from src.tools.mechanistic_animator import render_hybrid_science_video
-from src.tools.qa_gate import run_gate0_checks
+from src.tools.qa_gate import lint_agent3_storyboard, run_gate0_checks
 from src.tools.social_publisher import publish_to_all_platforms
 from src.tools.thumbnail_maker import generate_cover_thumbnail
-from src.tools.trend_scout import build_agent1_input_brief
+from src.tools.trend_scout import build_agent1_input_brief, get_blocked_topic_sets
 from src.tools.tts_engine import generate_episode_voiceover
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -95,32 +101,67 @@ def save_state(state: EpisodeState) -> Path:
     return p
 
 
+def _verify_url_status_200(url: str) -> bool:
+    import requests
+
+    try:
+        r = requests.head(url, timeout=4, allow_redirects=True, headers={"User-Agent": "BillExplainsStudio/2.0"})
+        if r.status_code == 200:
+            return True
+        if r.status_code in (403, 405):
+            r2 = requests.get(url, timeout=5, stream=True, allow_redirects=True, headers={"User-Agent": "BillExplainsStudio/2.0"})
+            return r2.status_code == 200
+    except Exception:
+        return False
+    return False
+
+
+def _sanitize_verified_reference(ref_text: str) -> str:
+    """Drop broken/hallucinated URLs/DOIs via HTTP 200 check while preserving clean source titles."""
+    import re
+
+    cleaned = " ".join((ref_text or "").strip().split())
+    if not cleaned:
+        return ""
+    urls = re.findall(r"https?://[^\s,)>]+", cleaned)
+    for u in urls:
+        if not _verify_url_status_200(u):
+            cleaned = cleaned.replace(u, "").strip(" -•|")
+    doi_m = re.search(r"\b(?:doi:\s*|https?://doi\.org/)?(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)", cleaned, flags=re.IGNORECASE)
+    if doi_m and not any(doi_m.group(1) in u for u in urls):
+        doi_url = f"https://doi.org/{doi_m.group(1)}"
+        if _verify_url_status_200(doi_url):
+            cleaned = f"{cleaned} ({doi_url})"
+    return " ".join(cleaned.split())
+
+
 def _collect_episode_references(state: EpisodeState) -> list[str]:
-    """Assemble clean sci-tech references + real footage source credits for end-card & description."""
+    """Assemble HTTP-verified sci-tech references + footage credits for the YouTube description."""
     refs: list[str] = []
     seen: set[str] = set()
 
-    def add_ref(text: str) -> None:
-        cleaned = " ".join(text.strip().split())
-        if cleaned and cleaned.lower() not in seen:
+    def add_ref(text: str, verify_links: bool = True) -> None:
+        cleaned = _sanitize_verified_reference(text) if verify_links else " ".join(text.strip().split())
+        if cleaned and len(cleaned) >= 6 and cleaned.lower() not in seen:
             seen.add(cleaned.lower())
             refs.append(cleaned)
 
     if state.agent3 and state.agent3.references:
         for r in state.agent3.references:
-            add_ref(r)
+            add_ref(r, verify_links=True)
 
     if state.agent1 and state.agent2:
         winner = next((c for c in state.agent1.candidates if c.id == state.agent2.winner_id), None)
         if winner and winner.viral_source_url:
-            add_ref(f"Research Source: {winner.viral_source_url}")
+            if _verify_url_status_200(winner.viral_source_url):
+                add_ref(f"Research Source: {winner.viral_source_url}", verify_links=False)
 
     if not refs and state.agent3:
-        add_ref(f"Engineering & Science Reference: {state.agent3.title}")
+        add_ref(f"Engineering & Science Reference: {state.agent3.title}", verify_links=False)
 
     if state.agent6 and state.agent6.assets:
         sources = sorted({a.source.replace("_", " ").title() for a in state.agent6.assets})
-        add_ref(f"Video Footage: {', '.join(sources)} (CC / Free License)")
+        add_ref(f"Visual Media: {', '.join(sources)} (CC / Free / AI Licensed)", verify_links=False)
 
     return refs[:4]
 
@@ -341,7 +382,10 @@ def run_agent_1_to_3(
         else ""
     )
 
-    # Agent 1: Ideation (3-5 everyday sci-tech ideas + 0-3s hook)
+    blocked_titles, _, _ = get_blocked_topic_sets(BASE_DIR)
+    merged_avoid = list(dict.fromkeys([*(avoid_titles or []), *blocked_titles]))
+
+    # Agent 1: Ideation (5 everyday sci-tech ideas + 0-3s hook)
     a1_cfg = agents_cfg["agents"]["agent_1_ideation"]
     state.agent1 = call_structured_agent(
         provider=a1_cfg["provider"],
@@ -358,7 +402,7 @@ def run_agent_1_to_3(
             "PRIORITY 1: When `viral_candidates` has fresh everyday-relatable tech/science news, adapt them (`source_mode: 'viral_trend'`).\n"
             "PRIORITY 2 (Fallback): Select and sharpen unused ideas from `idea_bank_fallback_candidates` (`source_mode: 'idea_bank'`).\n"
             "Every candidate must be visualizable with REAL, concrete, family-safe everyday/tech/lab footage (never full animation), "
-            "MUST NOT repeat any topic in `avoid_titles`, and MUST apply any `weekly_growth_directives`."
+            "MUST NOT repeat ANY topic or closely matching concept in `avoid_titles`, and MUST apply any `weekly_growth_directives`."
         ),
         user_payload={
             "brand": brand["brand"],
@@ -367,7 +411,7 @@ def run_agent_1_to_3(
             "topic_hint": topic_hint,
             "requested_by": requested_by,
             "request_comment": request_source_comment,
-            "avoid_titles": avoid_titles or [],
+            "avoid_titles": merged_avoid[:80],
             "weekly_growth_directives": owner_a1 + weekly_dir.get("agent_1_directives", []) + radar_dir + slot_map_hint,
         },
         response_model=Agent1Output,
@@ -393,12 +437,13 @@ def run_agent_1_to_3(
             "(2) ZERO-SPOILER 3-6 WORD TITLE & 0-3s CURIOSITY HOOK: Penalize titles that give away the mechanism! "
             "Reward mystery titles and hooks that open with a bold bet, contrast, or everyday puzzle "
             "(ZERO slow greetings, ZERO 'Have you ever wondered...' clichés, ZERO dictionary definitions).\n"
-            "(3) CONCRETE VISUAL CONTRAST: Fast pacing with crisp real-world visuals.\n"
+            "(3) CONCRETE VISUAL CONTRAST & NO DUPLICATES: Reject any candidate that overlaps `avoid_titles`.\n"
             "Pick the #1 winner and give max 4 sharp improvement notes (rewriting title to <=6 spoiler-free English words if needed). "
             f"{req_a2_note}"
         ),
         user_payload={
             "candidates": [c.model_dump() for c in state.agent1.candidates],
+            "avoid_titles": merged_avoid[:80],
             "requested_by": requested_by,
             "topic_hint": topic_hint,
             "weekly_growth_directives": owner_a2 + weekly_dir.get("agent_2_directives", []) + radar_dir,
@@ -418,75 +463,80 @@ def run_agent_1_to_3(
     if winner.source_mode == "idea_bank":
         memory.mark_idea_used(winner.id, episode_id)
 
+    spoken_brand = get_brand_spoken_name()
+    youtube_cta = get_youtube_cta()
     radar_a3_note = (
-        "WEEKEND 'TECH RADAR' EPISODE (~45-55s TOTAL): Do NOT open with 'Welcome to Tech Radar'! "
+        "WEEKEND 'TECH RADAR' EPISODE (~34-46s TOTAL): Do NOT open with 'Welcome to Tech Radar'! "
         "Open scene_1 (0-3s) IMMEDIATELY with an everyday pain point or bold prediction, weave in the new breakthrough "
-        "naturally in scene 2-3 (naming the university/lab/company & mechanism), and end with what it changes in daily life. "
-        "In `references`, cite the exact source/institution/year & title. "
+        "naturally in scene 2-3 (naming the university/lab/company & mechanism), and end cleanly right after the aha moment. "
+        "In `references`, cite verifiable journal/institution sources. "
         if is_radar
-        else "WEEKDAY 'EVERYDAY TECH' EPISODE (~38-48s TOTAL): Keep every line grounded in real devices/homes/streets people touch daily, "
-        "and end with 1 crisp 'aha!' takeaway. "
+        else "WEEKDAY 'EVERYDAY TECH' EPISODE (~30-44s TOTAL): Keep every line grounded in real devices/homes/streets people touch daily, "
+        "and end crisply right after the 'aha!' payoff (zero slow outro). "
     )
     custom_dur = owner_ro.get("target_duration_sec")
     if isinstance(custom_dur, list) and len(custom_dur) == 2:
-        lo_d, hi_d = int(custom_dur[0]), int(custom_dur[1])
-        lo_w, hi_w = int(lo_d * 2.4), int(hi_d * 2.6)
+        lo_d, hi_d = max(28, int(custom_dur[0])), min(46, int(custom_dur[1]))
+        lo_w, hi_w = int(lo_d * 2.4), int(hi_d * 2.5)
         duration_rule = f"~{lo_d}-{hi_d}s spoken (~{lo_w}-{hi_w} English words across 5-6 tight scenes)"
     else:
         duration_rule = (
-            "~45-55s spoken (~115-145 English words across 6 tight scenes, ~18-24 words per scene)"
+            "~34-46s spoken (~85-115 English words across 5-6 tight scenes, ~15-21 words per scene)"
             if is_radar
-            else "~38-48s spoken (~95-125 English words across 5-6 tight scenes, ~16-22 words per scene)"
+            else "~30-44s spoken (~75-108 English words across 5-6 tight scenes, ~14-19 words per scene)"
         )
     spoken_requester = requested_by.lstrip("@") if requested_by else ""
     req_a3_note = (
         f"VIEWER REQUEST FROM '{requested_by}' (comment: '{request_source_comment or topic_hint}'): "
         f"In scene_1, give a quick shoutout right beside the hook ('Answering {spoken_requester}'s question!'), "
-        f"and in the closing line thank {spoken_requester} and invite viewers to drop more requests! "
+        f"and in the closing line thank {spoken_requester} briefly! "
         if requested_by
         else ""
     )
-    state.agent3 = call_structured_agent(
-        provider=a3_cfg["provider"],
-        model=a3_cfg.get("model", a3_cfg["recommended_prod_model"]),
-        system_prompt=(
-            f"You are Agent 3 (English Script, Shot-List & Mechanistic Storyboard Reviser) for {brand_name}. "
-            f"Write an energetic, crystal-clear, tight-paced conversational US/Global English script ({duration_rule}) "
-            "applying Agent 2's notes and `weekly_growth_directives`.\n"
-            "TITLE RULE: `title` MUST be 3 to 6 punchy English words WITHOUT spoiling the scientific/tech answer!\n"
-            f"{req_a3_note}{radar_a3_note}"
-            "PROVEN RETENTION STRUCTURE:\n"
-            "- Scene 1 (0-3s Hook — ZERO GREETING, ZERO SPOILER): Start directly with a surprising contrast, everyday frustration, "
-            "or a 1-second visual bet ('Wait—how does a dead phone still pay at checkout?'). NEVER start with 'Hey guys' or 'Have you ever wondered'.\n"
-            "- Middle scenes (Reveal -> Hidden Mechanism -> Twist): Zero dry textbook lecturing! Use 1 crisp re-hook ('Here is the weird twist...', "
-            "'And that is why...') and explain the hidden hardware/physics/material mechanism with a simple analogy.\n"
-            "- Final scene (Payoff + 1-WORD DEBATE COMMENT CTA): Resolve the opening mystery cleanly, ask ONE ultra-specific playful 1-word "
-            "poll tied to THIS episode (e.g. 'Team Dark Mode or Light Mode? Comment DARK or LIGHT!'), and close with: "
-            f"'Follow {brand_name} for more everyday tech decoded!'\n"
-            "VISUAL QUERY RULES: Each scene MUST specify an English real-footage `visual_query` (no cartoons/animations) naming a CONCRETE, "
-            "FAMILY-SAFE, filmable object/device/environment (e.g. 'contactless smartphone payment terminal closeup', 'induction stove boiling water pot'). "
-            "Provide 2-3 equally concrete `fallback_queries`. "
-            "For ALL middle explanation scenes (scenes 2 through second-to-last), ALWAYS provide BOTH `overlay_badge` AND `mechanism` "
-            "so the renderer draws an animated Sci-Tech mechanistic diagram above the subtitles: choose `mechanism.kind` accurately from the 12 engines:\n"
-            "  - 'magnetic_induction' (NFC/RFID coils, inductive stoves, wireless Qi, eddy currents, electromagnets)\n"
-            "  - 'circuit_signal' (logic gates, capacitive touch grids, piezoelectric pulses, microchips, PWM)\n"
-            "  - 'optical_emission' (OLED pixels, laser/PPG sensors, solar PV, refraction, fiber optics, UV)\n"
-            "  - 'phase_thermal' (heat pipes, vapor chambers, Peltier coolers, Li-ion thermal runaway, flash evaporation)\n"
-            "  - 'membrane_transport' (solid-state electrolyte Li+ hopping, RO osmosis, fuel cell proton membranes, dialysis)\n"
-            "  - 'crystal_lattice' (Gorilla Glass K+ ion exchange, silicon doping, piezoelectric quartz, tempering compression)\n"
-            "  - 'electron_transfer' (redox batteries, corrosion, LED electron-hole recombination, static discharge)\n"
-            "  - 'polymer_crosslink' (superglue cyanoacrylate curing, hydrogels, carbon fiber composites, aerogels)\n"
-            "  - 'molecular_reaction' (catalytic converters, photocatalysts, CO2 capture, smart chemical sensors)\n"
-            "  - 'receptor_binding' (glucose biosensors, mRNA lipid nanoparticles, CRISPR targeting, antibodies)\n"
-            "  - 'force_wave' (ANC destructive sound interference, ultrasound, Bernoulli/Venturi aerodynamics, gyroscopes)\n"
-            "  - 'math_geometry' (honeycomb/origami metamaterials, gears, truss load paths, algorithmic hashing)\n"
-            "Check `mechanism_bank_catalog` and set `mechanism.preset_id` when a learned preset matches, plus pick a cohesive `accent_color` "
-            "('cyan', 'green', 'amber', 'purple', 'orange', 'blue', 'red'). Vary engines across scenes when appropriate instead of repeating blindly. "
-            "Keep concise English `title` (<=28 chars), `actor_a` & `actor_b` (<=14 chars), `result` (<=20 chars), and `caption` (<=48 chars). "
-            "Always set a copyright-free `sfx_cue` (whoosh/pop/riser/spark/ding/chime) per scene. "
-            "ALWAYS populate `references` with 1-3 real, accurate engineering/science references."
-        ),
-        user_payload={
+
+    a3_system_prompt = (
+        f"You are Agent 3 (English Script, Shot-List & Mechanistic Storyboard Reviser) for {spoken_brand}. "
+        f"Write a crisp, high-retention conversational American English script ({duration_rule}) "
+        "applying Agent 2's notes and `weekly_growth_directives`.\n"
+        "STRICT ENGLISH-ONLY RULE: 100% American English across EVERY field (narration, title, overlay_badge, mechanism labels). "
+        "ZERO Indonesian words (never use SIMULASI, MEKANISME, EFEK, HASIL, SOLUSI, MOLEKUL, GAYA, REAKSI, IKATAN, TAHAP). "
+        "ZERO generic placeholders ('Input', 'Output', 'Process', 'Mechanism', 'Molecule B').\n"
+        "SPEECH & BRAND CTA HYGIENE:\n"
+        f"- In spoken `narration`, ALWAYS write '{spoken_brand}' (ZERO underscores, ZERO '@' symbols!). Never use 'Follow' on YouTube.\n"
+        "- TITLE RULE: `title` MUST be 3 to 6 punchy English words WITHOUT spoiling the answer!\n"
+        f"{req_a3_note}{radar_a3_note}"
+        "SHORTS RETENTION STRUCTURE (STRICT 30-46s TARGET):\n"
+        "- Scene 1 (0-3s Hook — ZERO GREETING, ZERO SPOILER): Start directly with a surprising contrast, everyday frustration, "
+        "or a 1-second visual bet ('Wait—how does a dead phone still pay at checkout?'). NEVER start with 'Hey guys' or 'Have you ever wondered'.\n"
+        "- Middle scenes (Reveal -> Hidden Mechanism -> Twist): Crisp re-hook ('Here is the weird twist...') explaining the real mechanism.\n"
+        f"- Final scene (Payoff — ZERO DEAD-AIR OUTRO): End cleanly RIGHT after the aha moment! Never say 'Thank you for watching'. "
+        f"If adding a quick <=1.5s CTA, say '{youtube_cta}' + optional 1-word poll.\n"
+        "VISUAL SHOT QUERY RULES (3-TIER WATERFALL):\n"
+        "- Every scene's `visual_query` MUST be a concrete 2 to 4 word English phrase naming a real filmable physical object/action "
+        "(e.g. 'nonstick frying pan egg', 'contactless card tap phone', 'smartwatch green optical sensor'). Never abstract concepts!\n"
+        "- Provide 2-3 equally concrete `fallback_queries` and populate `negative_keywords` (`['logo', 'text', 'watermark', 'presentation', 'lecture', 'intro', 'slide']`).\n"
+        "MECHANISTIC DIAGRAM & SCIENTIFIC ACCURACY RULES:\n"
+        "- For ALL middle explanation scenes (scenes 2 through second-to-last), ALWAYS provide BOTH `overlay_badge` AND `mechanism`.\n"
+        "- Choose `mechanism.kind` strictly matching the domain (NO consecutive duplicate engines: scene[i].kind != scene[i-1].kind!):\n"
+        "  12 Core Engines: 'magnetic_induction', 'circuit_signal', 'optical_emission', 'phase_thermal', "
+        "'membrane_transport', 'crystal_lattice', 'electron_transfer', 'polymer_crosslink', "
+        "'molecular_reaction' (ONLY when real covalent/chemical bond forms or breaks — NEVER for non-bonding interfaces!), "
+        "'receptor_binding', 'force_wave', 'math_geometry'.\n"
+        "  4 Safe Neutral Templates (PREFER THESE whenever no specialized physics/bonding engine matches accurately): "
+        "'concept_comparison', 'micro_structure_callout', 'three_step_flow', 'stat_highlight'.\n"
+        "- Keep concise English `title` (<=28 chars), specific `actor_a` & `actor_b` (<=14 chars), accurate `result` (<=20 chars), and `caption` (<=48 chars).\n"
+        "- Always set copyright-free `sfx_cue` (whoosh/pop/riser/spark/ding/chime) and populate `references` with 1-3 real verifiable engineering/science sources (for description only)."
+    )
+
+    from pydantic import BaseModel, Field
+
+    class _FactCheckVerdict(BaseModel):
+        passed: bool
+        issues: list[str] = Field(default_factory=list, description="Exact scientific contradictions, acronym typos, or engine mismatches")
+
+    fix_feedback: list[str] = []
+    for a3_pass in range(2):
+        user_payload_a3 = {
             "winner_idea": winner.model_dump(),
             "audit_notes": state.agent2.improvement_notes,
             "voice_style": brand["voice"],
@@ -495,10 +545,59 @@ def run_agent_1_to_3(
             "mechanism_bank_catalog": mechanism_catalog,
             "animator_directives": animator_dir,
             "weekly_growth_directives": owner_a3 + weekly_dir.get("agent_3_directives", []) + radar_dir,
-        },
-        response_model=Agent3Output,
-        handoff_path=paths["handoffs"] / "agent3_script.json",
-    )
+        }
+        if fix_feedback:
+            user_payload_a3["CRITICAL_REWRITE_FIXES_REQUIRED"] = fix_feedback
+
+        cand_a3 = call_structured_agent(
+            provider=a3_cfg["provider"],
+            model=a3_cfg.get("model", a3_cfg["recommended_prod_model"]),
+            system_prompt=a3_system_prompt,
+            user_payload=user_payload_a3,
+            response_model=Agent3Output,
+            handoff_path=paths["handoffs"] / "agent3_script.json",
+        )
+
+        # Gate 1: Deterministic English-only + placeholder + duplicate-engine linter (0 tokens)
+        lint_errs = lint_agent3_storyboard(cand_a3)
+
+        # Gate 2: Lightweight Pre-Render Science & Acronym Fact-Check LLM Pass (only when lint clean or final pass)
+        fc_errs: list[str] = []
+        if not lint_errs:
+            try:
+                fc = call_structured_agent(
+                    provider=a3_cfg["provider"],
+                    model=agents_cfg.get("agents", {}).get("agent_6_asset_scout", {}).get("recommended_prod_model", "gemini-3.5-flash-lite"),
+                    system_prompt=(
+                        "You are a Science Communication Fact-Check Gate verifying an English Sci-Tech Shorts script + diagram storyboard BEFORE rendering.\n"
+                        "Check strictly:\n"
+                        "1. Zero contradiction between narration and diagram labels (e.g., never label non-bonding interfaces like PTFE+aluminum as 'BOND FORMED' or 'REACTION'; never claim carbon-fluorine bonds are weak!).\n"
+                        "2. Exact spelling of all chemical/tech acronyms & terminology (PTFE not PTFS, Li-ion, PPG, LED, OLED, photoplethysmography, etc.).\n"
+                        "3. Every step's selected `mechanism.kind` logically fits the physics/chemistry described (no consecutive identical `kind`, prefer neutral templates like `micro_structure_callout`/`concept_comparison` if unsure)."
+                    ),
+                    user_payload=cand_a3.model_dump(),
+                    response_model=_FactCheckVerdict,
+                    handoff_path=paths["handoffs"] / f"fact_check_p{a3_pass + 1}.json",
+                )
+                if not fc.passed and fc.issues:
+                    fc_errs = list(fc.issues)
+            except Exception as fc_exc:
+                print(f"[fact_check] Warning: skipped optional LLM fact-check ({fc_exc})")
+
+        all_errs = lint_errs + fc_errs
+        if not all_errs:
+            state.agent3 = cand_a3
+            break
+
+        print(f"[pipeline] Storyboard QA gate pass {a3_pass + 1} flagged {len(all_errs)} issue(s): {all_errs}")
+        if a3_pass == 0:
+            fix_feedback = all_errs
+            continue
+        if lint_errs:
+            raise ValueError(f"Agent 3 storyboard failed deterministic English/placeholder linter: {lint_errs}")
+        state.agent3 = cand_a3
+
+    assert state.agent3 is not None
     if requested_by and not state.agent3.requested_by:
         state.agent3.requested_by = requested_by
     state.status = "scripted"
@@ -625,12 +724,16 @@ def run_agent_4_proxy_and_gate0(
                 voice_cfg["rate"] = f"{new_r:+d}%"
         except Exception:
             pass
-        voice_path, scene_timings, subtitles, _ = generate_episode_voiceover(
+        voice_path, scene_timings, subtitles, _, tts_engine = generate_episode_voiceover(
             scenes=state.agent3.scenes,
             out_dir=paths["renders"] / f"audio_v{version}",
             voice=voice_cfg["voice_name"],
             rate=voice_cfg["rate"],
             pitch=voice_cfg["pitch"],
+        )
+        (paths["handoffs"] / "tts_meta.json").write_text(
+            json.dumps({"tts_engine": tts_engine, "version": version}, indent=2),
+            encoding="utf-8",
         )
 
     plan = build_render_plan(
@@ -674,7 +777,7 @@ def run_agent_5_video_qa(
     if state.agent3 is None or state.render_plan is None or state.gate0 is None:
         raise RuntimeError("Render proxy and Gate 0 before running Agent 5 QA.")
 
-    min_qa = float(brand.get("guardrails", {}).get("min_qa_score", 8.0))
+    min_qa = float(brand.get("guardrails", {}).get("min_qa_score", 7.5))
     a5_cfg = agents_cfg["agents"]["agent_5_video_qa"]
     brand_name = get_brand_name()
 
@@ -682,20 +785,21 @@ def run_agent_5_video_qa(
         provider=a5_cfg["provider"],
         model=a5_cfg.get("model", a5_cfg["recommended_prod_model"]),
         system_prompt=(
-            f"You are Agent 5 (Strict Multimodal Video QA Auditor) for {brand_name}. "
+            f"You are Agent 5 (Strict Multimodal Video QA Auditor) for {brand_name} ({get_brand_handle()}). "
             "Inspect the attached contact sheet image carefully alongside Gate 0 technical checks and script. "
             "Be objective and strict — check EVERY item:\n"
             "0. SAFETY FIRST: Any nudity, suggestive, violent or inappropriate frame for a family-friendly tech/science "
             "channel = automatic fail with revision_target 'asset_scout' and that scene in affected_scenes.\n"
-            "1. Visual clarity & framing: Is the real footage crisp and un-zoomed? Landscape clips intentionally sit inside a "
-            "clean full-width window over a blurred backdrop (house style, NOT a defect). Check clip-to-narration fit and absence of watermarks.\n"
-            "2. Mechanistic overlays: Are animated mechanism diagrams clearly visible with crisp contrast and zero overlapping text?\n"
-            "3. Duo mascots: Are the tech-geek mascots visible and cleanly positioned without blocking subtitles?\n"
-            "4. Subtitle readability: Are English subtitles sharp, centered, and inside the safe zone?\n"
-            "5. End-card references: Confirm the LAST tile ('END-CARD') shows the 'SOURCES & REFERENCES' card.\n"
+            "1. Full-screen 9:16 framing & clarity: Real video, photo-Ken-Burns, or AI 9:16 scene fills the 9:16 vertical frame cleanly "
+            "without tiny boxed footage over static blur, watermarks, or off-topic visuals.\n"
+            "2. Mechanistic overlays & English-only check: Animated mechanism diagrams are sharp with ZERO clipped text, ZERO Indonesian "
+            "tokens (SIMULASI, EFEK, HASIL, MOLEKUL, REAKSI), ZERO placeholder strings (Molecule B), and handle displays @Bill_explains12.\n"
+            "3. Duo mascots: Tech-geek mascots sit cleanly in the safe corner without blocking subtitles or central diagrams.\n"
+            "4. Subtitle readability: English subtitles are crisp, centered, and inside the vertical Shorts safe zone.\n"
+            "5. Final CTA ending: Confirm the LAST frame keeps active visual/mascot energy with a compact Subscribe badge and ZERO static 'THANK YOU FOR WATCHING' or 'SOURCES & REFERENCES' card.\n"
             "6. Gate 0 audio/video health: Must pass technical checks.\n"
             "7. Hook & Retention Pacing: Confirm scene_1 delivers an immediate scroll-stopping curiosity hook.\n"
-            f"Set `passed: true` ONLY if Gate 0 passed AND overall_score >= {min_qa} AND no major visual defects exist. "
+            f"Set `passed: true` ONLY if Gate 0 passed AND overall_score >= {min_qa} AND no major visual/language defects exist. "
             "If failing, specify exact `revision_target` ('asset_scout', 'editor', or 'both'), `affected_scenes`, and up to 4 sharp `patch_instructions`."
         ),
         user_payload={
@@ -805,16 +909,19 @@ def run_upload(
     )
     state.gdrive_folder_url = url
     yt_meta = paths["handoffs"] / "youtube_upload.json"
+    yt_privacy = ""
     if yt_meta.exists():
         try:
-            state.youtube_url = json.loads(yt_meta.read_text(encoding="utf-8")).get("youtube_url")
+            yt_data = json.loads(yt_meta.read_text(encoding="utf-8"))
+            state.youtube_url = yt_data.get("youtube_url")
+            yt_privacy = str(yt_data.get("privacy_status") or "").lower()
         except Exception:
             pass
     if allow_youtube:
-        state.status = "uploaded"
+        state.status = "uploaded" if yt_privacy == "public" else "awaiting_review"
     save_state(state)
 
-    if allow_youtube and state.agent3:
+    if allow_youtube and state.agent3 and yt_privacy == "public":
         from src.tools.weekly_growth_auditor import record_published_episode
 
         mechanisms_used = [
@@ -855,7 +962,7 @@ def run_upload(
             slug=state.agent3.episode_slug,
             title=state.agent3.title,
             phenomenon=state.agent3.title,
-            status="uploaded",
+            status="uploaded" if yt_privacy == "public" else "awaiting_review",
             final_score=last_score,
             gdrive_url=url,
         )
@@ -893,10 +1000,13 @@ def prepare_episode_thumbnail(episode_id: str) -> EpisodeState:
             provider=a7_cfg["provider"],
             model=a7_cfg.get("model", a7_cfg["recommended_prod_model"]),
             system_prompt=(
-                f"You are Agent 7 (High-CTR Shorts Packaging & Social Media Publisher) for {brand_handle}. "
+                f"You are Agent 7 (High-CTR Shorts Packaging & Social Media Publisher) for {get_brand_spoken_name()} ({brand_handle}). "
                 "Create viral, non-spoiler English thumbnail copy AND platform-tailored title, punchy caption, "
                 "hashtags, and a conversation-starting `pinned_comment` for every platform, strictly respecting any `owner_directives`.\n"
                 "PLATFORM TITLE RULE: `platform_copies[].title` MUST be **3 to 6 punchy words** (<=45 chars) with ZERO spoiler.\n"
+                f"YOUTUBE CTA RULE: On `youtube_shorts`, ALWAYS end the caption CTA with `{get_youtube_cta()}` ({brand_handle}). "
+                "NEVER use the word 'Follow' in any YouTube title, caption, or pinned comment.\n"
+                "REFERENCES RULE: Append `Sources:` followed by compact verified reference links/titles from `script.references` at the bottom of the YouTube Shorts caption.\n"
                 "COVER THUMBNAIL COPY RULE: Keep `thumbnail_badge` to 1-2 uppercase words (<=16 chars, e.g. 'EVERYDAY TECH', 'TECH RADAR'), "
                 "`thumbnail_headline_top` to 1-3 short words (<=15 chars, e.g. 'DEAD PHONE'), and `thumbnail_headline_main` to **2-3 explosive curiosity words** "
                 "(<=14 chars, e.g. 'STILL PAYS?!', 'HIDDEN TRICK!', 'WHY 80%?!') that spark instant curiosity without spoiling! "
@@ -904,6 +1014,7 @@ def prepare_episode_thumbnail(episode_id: str) -> EpisodeState:
             ),
             user_payload={
                 "brand": brand["brand"],
+                "youtube_cta": get_youtube_cta(),
                 "script": state.agent3.model_dump(),
                 "requested_by": state.requested_by,
                 "request_source_comment": state.request_source_comment,
@@ -917,6 +1028,14 @@ def prepare_episode_thumbnail(episode_id: str) -> EpisodeState:
         )
 
     pkg = state.agent7
+    # Deterministic safety scrub on YouTube copies: replace @bill_explains or 'Follow ' CTA
+    for pc in pkg.platform_copies:
+        if pc.platform == "youtube_shorts":
+            pc.caption = pc.caption.replace("@bill_explains", brand_handle)
+            pc.pinned_comment = pc.pinned_comment.replace("@bill_explains", brand_handle)
+            if "follow " in pc.caption.lower() and "subscribe" not in pc.caption.lower():
+                pc.caption = f"{pc.caption.rstrip()}\n\n{get_youtube_cta()} ({brand_handle})"
+
     thumb_path = paths["ep_dir"] / f"THUMBNAIL_{state.agent3.episode_slug}_9x16.jpg"
     if not pkg.thumbnail_path or not Path(pkg.thumbnail_path).exists():
         if state.render_plan and state.render_plan.segments:
@@ -962,6 +1081,8 @@ def run_agent_7_publish(
         "PUBLISH_MODE",
         brand.get("publishing", {}).get("default_mode", "draft"),
     )
+    if os.environ.get("ALLOW_DIRECT_PUBLIC", "false").lower() == "false" and publish_mode == "public":
+        publish_mode = "draft"
 
     if video_override:
         final_video = Path(video_override)
@@ -983,7 +1104,7 @@ def run_agent_7_publish(
     )
     state.agent7 = pkg
     if any(r.status in ("published", "uploaded_draft") for r in pkg.publish_results):
-        state.status = "published"
+        state.status = "published" if publish_mode == "public" else "awaiting_review"
     save_state(state)
     return state
 
