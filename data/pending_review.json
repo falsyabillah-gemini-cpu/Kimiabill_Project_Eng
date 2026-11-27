@@ -51,11 +51,11 @@
       "duration_sec": 28.9,
       "target_publish_iso": "2026-11-27T21:00:00+07:00",
       "telegram_message_id": 91,
-      "reminder_sent": false,
+      "reminder_sent": true,
       "status": "awaiting_review",
       "ai_audit_result": null,
       "created_at": "2026-11-27T00:38:13+07:00",
-      "updated_at": "2026-11-27T00:38:17+07:00"
+      "updated_at": "2026-11-27T21:30:51+07:00"
     },
     "ep_20261127_010007": {
       "episode_id": "ep_20261127_010007",
