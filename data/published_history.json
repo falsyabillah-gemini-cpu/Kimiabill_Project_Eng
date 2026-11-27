@@ -98,5 +98,25 @@
         "result": "Payment Approved"
       }
     ]
+  },
+  {
+    "episode_id": "ep_20261127_003422",
+    "published_at_wib": "2026-11-27T21:40:39+07:00",
+    "title": "The Glass Stove That Stays Cold",
+    "discipline": "engineering",
+    "section": "EVERYDAY_TECH",
+    "youtube_url": "https://youtube.com/shorts/aRwuUwZYghU",
+    "gdrive_folder_url": "https://drive.google.com/drive/folders/1f8LU_nUCIG59Q3W64e_Yud6rT9xLJ7WZ",
+    "qa_score": 9.5,
+    "duration_sec": 28.9,
+    "hook_line": "",
+    "revisions_used": 0,
+    "topic_attempts_used": 1,
+    "production_seconds": null,
+    "publish_mode": "public",
+    "agent_models": {
+      "Agent Lain": "gemini-3.5-flash-lite (fallback dari gemini-2.5-flash)"
+    },
+    "mechanisms_used": []
   }
 ]
