@@ -122,10 +122,24 @@
       "target_publish_iso": "2026-11-28T04:00:00+07:00",
       "telegram_message_id": 106,
       "reminder_sent": true,
-      "status": "awaiting_review",
-      "ai_audit_result": null,
+      "status": "approved_by_ai",
+      "ai_audit_result": {
+        "decision": "APPROVE",
+        "overall_score": 9.5,
+        "fatal_flaws": [],
+        "checks": {
+          "hook_visual_match": "PASS",
+          "tts_pronunciation_and_flow": "PASS",
+          "english_only_and_handle": "PASS",
+          "science_fact_accuracy": "PASS",
+          "animation_diversity_and_clean_text": "PASS",
+          "zero_static_outro": "PASS"
+        },
+        "revision_instruction": "",
+        "audit_mode": "keyframe_fallback"
+      },
       "created_at": "2026-11-27T21:29:41+07:00",
-      "updated_at": "2026-11-27T22:47:48+07:00"
+      "updated_at": "2026-11-27T23:38:54+07:00"
     }
   }
 }

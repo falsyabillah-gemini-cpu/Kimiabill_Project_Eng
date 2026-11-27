@@ -118,5 +118,25 @@
       "Agent Lain": "gemini-3.5-flash-lite (fallback dari gemini-2.5-flash)"
     },
     "mechanisms_used": []
+  },
+  {
+    "episode_id": "ep_20261127_212639",
+    "published_at_wib": "2026-11-27T23:38:54+07:00",
+    "title": "The Phone's Invisible Laser Web",
+    "discipline": "gadgets",
+    "section": "EVERYDAY_TECH",
+    "youtube_url": "https://youtube.com/shorts/ImjQJAMPX3M",
+    "gdrive_folder_url": "https://drive.google.com/drive/folders/11IzRi7zP0e2ZYq8bdyHhxm6Q66ZZgG-N",
+    "qa_score": 9.5,
+    "duration_sec": 25.0,
+    "hook_line": "",
+    "revisions_used": 0,
+    "topic_attempts_used": 1,
+    "production_seconds": null,
+    "publish_mode": "public",
+    "agent_models": {
+      "Agent Lain": "gemini-3.5-flash-lite (fallback dari gemini-2.5-flash)"
+    },
+    "mechanisms_used": []
   }
 ]
