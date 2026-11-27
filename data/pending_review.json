@@ -84,6 +84,34 @@
       "ai_audit_result": null,
       "created_at": "2026-11-27T01:03:08+07:00",
       "updated_at": "2026-11-27T01:04:39+07:00"
+    },
+    "ep_20261127_212639": {
+      "episode_id": "ep_20261127_212639",
+      "slot": "slot_0400",
+      "topic_title": "The Phone's Invisible Laser Web",
+      "topic_slug": "the-phones-invisible-laser-web",
+      "pillar": "gadgets",
+      "section_tag": "EVERYDAY_TECH",
+      "source_url": "Apple Inc., TrueDepth Camera Technology White Paper, 2017",
+      "youtube_video_id": "ImjQJAMPX3M",
+      "youtube_url": "https://youtube.com/shorts/ImjQJAMPX3M",
+      "drive_url": "https://drive.google.com/drive/folders/11IzRi7zP0e2ZYq8bdyHhxm6Q66ZZgG-N",
+      "video_artifact_ref": "46015880581:studio-episode-46015880581",
+      "final_video_path": "/home/runner/work/Kimiabill_Project_Eng/Kimiabill_Project_Eng/episodes/ep_20261127_212639/FINAL_the-phones-invisible-laser-web_1080p.mp4",
+      "thumbnail_path": "/home/runner/work/Kimiabill_Project_Eng/Kimiabill_Project_Eng/episodes/ep_20261127_212639/THUMBNAIL_the-phones-invisible-laser-web_9x16.jpg",
+      "footage_tier_summary": "tier_1_video=3, tier_2_photo_ken_burns=2",
+      "tts_engine": "Edge-TTS (en-US-AndrewNeural)",
+      "revision_count": 0,
+      "qa_summary": "Score 9.5/10 (Vis 9.8, Sub 9.5, Aud 9.2)",
+      "pinned_comment": "Team PIN or FACE? Comment PIN or FACE! 👇 What everyday tech should we decode next?",
+      "duration_sec": 25.0,
+      "target_publish_iso": "2026-11-28T04:00:00+07:00",
+      "telegram_message_id": 106,
+      "reminder_sent": false,
+      "status": "awaiting_review",
+      "ai_audit_result": null,
+      "created_at": "2026-11-27T21:29:41+07:00",
+      "updated_at": "2026-11-27T21:29:45+07:00"
     }
   }
 }
