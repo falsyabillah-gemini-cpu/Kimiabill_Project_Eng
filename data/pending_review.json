@@ -140,6 +140,34 @@
       },
       "created_at": "2026-11-27T21:29:41+07:00",
       "updated_at": "2026-11-27T23:38:54+07:00"
+    },
+    "ep_20261128_203046": {
+      "episode_id": "ep_20261128_203046",
+      "slot": "slot_2100",
+      "topic_title": "The Trap Inside Your Earbuds",
+      "topic_slug": "the-trap-inside-your-earbuds",
+      "pillar": "gadgets",
+      "section_tag": "TECH_RADAR",
+      "source_url": "Audio Engineering Society - Active Noise Control Fundamentals (2021)",
+      "youtube_video_id": "JyHcBaKmOQg",
+      "youtube_url": "https://youtube.com/shorts/JyHcBaKmOQg",
+      "drive_url": "https://drive.google.com/drive/folders/1eVit2ngr7b58mrZk7nA8Ij1MyK62vrf1",
+      "video_artifact_ref": "46149919650:studio-episode-46149919650",
+      "final_video_path": "/home/runner/work/Kimiabill_Project_Eng/Kimiabill_Project_Eng/episodes/ep_20261128_203046/FINAL_the-trap-inside-your-earbuds_1080p.mp4",
+      "thumbnail_path": "/home/runner/work/Kimiabill_Project_Eng/Kimiabill_Project_Eng/episodes/ep_20261128_203046/THUMBNAIL_the-trap-inside-your-earbuds_9x16.jpg",
+      "footage_tier_summary": "tier_1_video=4, tier_2_photo_ken_burns=1",
+      "tts_engine": "Edge-TTS (en-US-AndrewNeural)",
+      "revision_count": 0,
+      "qa_summary": "Score 9.5/10 (Vis 9.5, Sub 9.5, Aud 9.5)",
+      "pinned_comment": "Team ANC or Passive? Comment ANC or PASSIVE! 👇 What everyday tech should we decode next?",
+      "duration_sec": 26.1,
+      "target_publish_iso": "2026-11-28T21:00:00+07:00",
+      "telegram_message_id": 113,
+      "reminder_sent": false,
+      "status": "awaiting_review",
+      "ai_audit_result": null,
+      "created_at": "2026-11-28T20:34:20+07:00",
+      "updated_at": "2026-11-28T20:34:24+07:00"
     }
   }
 }
