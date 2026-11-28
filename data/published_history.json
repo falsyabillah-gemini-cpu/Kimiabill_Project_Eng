@@ -156,5 +156,23 @@
     "publish_mode": "public",
     "agent_models": {},
     "mechanisms_used": []
+  },
+  {
+    "episode_id": "ep_20261128_211406",
+    "published_at_wib": "2026-11-28T21:25:45+07:00",
+    "title": "That Smartwatch Green Light",
+    "discipline": "biotech",
+    "section": "TECH_RADAR",
+    "youtube_url": "https://youtube.com/shorts/1r6pOQHI-v4",
+    "gdrive_folder_url": "https://drive.google.com/drive/folders/1SbM42MML3tsXhDN-ru_f1HqRF5M8jDAv",
+    "qa_score": null,
+    "duration_sec": 24.1,
+    "hook_line": "",
+    "revisions_used": 0,
+    "topic_attempts_used": 1,
+    "production_seconds": null,
+    "publish_mode": "public",
+    "agent_models": {},
+    "mechanisms_used": []
   }
 ]

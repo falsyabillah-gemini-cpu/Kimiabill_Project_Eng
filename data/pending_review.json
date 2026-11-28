@@ -192,10 +192,10 @@
       "target_publish_iso": "2026-11-29T04:00:00+07:00",
       "telegram_message_id": 118,
       "reminder_sent": false,
-      "status": "awaiting_review",
+      "status": "approved",
       "ai_audit_result": null,
       "created_at": "2026-11-28T21:17:01+07:00",
-      "updated_at": "2026-11-28T21:17:04+07:00"
+      "updated_at": "2026-11-28T21:25:45+07:00"
     }
   }
 }
