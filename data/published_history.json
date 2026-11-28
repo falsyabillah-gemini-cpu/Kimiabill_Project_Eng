@@ -138,5 +138,23 @@
       "Agent Lain": "gemini-3.5-flash-lite (fallback dari gemini-2.5-flash)"
     },
     "mechanisms_used": []
+  },
+  {
+    "episode_id": "ep_20261128_203046",
+    "published_at_wib": "2026-11-28T20:37:42+07:00",
+    "title": "The Trap Inside Your Earbuds",
+    "discipline": "gadgets",
+    "section": "TECH_RADAR",
+    "youtube_url": "https://youtube.com/shorts/JyHcBaKmOQg",
+    "gdrive_folder_url": "https://drive.google.com/drive/folders/1eVit2ngr7b58mrZk7nA8Ij1MyK62vrf1",
+    "qa_score": null,
+    "duration_sec": 26.1,
+    "hook_line": "",
+    "revisions_used": 0,
+    "topic_attempts_used": 1,
+    "production_seconds": null,
+    "publish_mode": "public",
+    "agent_models": {},
+    "mechanisms_used": []
   }
 ]
